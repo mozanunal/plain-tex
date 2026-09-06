@@ -120,6 +120,10 @@ Current test status in this workspace: passing.
 
 ## HTTP Routes (high level)
 
+Health:
+
+- `GET /healthz` (no auth, returns `{"status":"ok"}`)
+
 Auth:
 
 - `GET/POST /login`

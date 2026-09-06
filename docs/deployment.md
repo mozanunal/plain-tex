@@ -252,14 +252,30 @@ major update as a precaution.
 
 ## Health check
 
-The image ships a `HEALTHCHECK` that requests `/login`. Inspect it with:
+poly-txt exposes `GET /healthz`. It needs no authentication, verifies that the
+SQLite database is reachable, and returns JSON:
+
+```bash
+curl -i http://localhost:3000/healthz
+```
+
+```json
+{"status":"ok"}
+```
+
+It returns `200` when healthy and `503` with `{"status":"unavailable"}` when the
+database cannot be reached, so a load balancer or uptime monitor can rely on the
+status code alone. Requests to this path are deliberately left out of the
+request log to keep polling from flooding it.
+
+The image ships a `HEALTHCHECK` that polls this endpoint. Inspect it with:
 
 ```bash
 docker inspect --format '{{.State.Health.Status}}' poly-txt
 ```
 
-For an external monitor, poll `GET /login`, which returns `200` without
-authentication.
+Note that it checks the database only. It does not shell out to tectonic or
+typst, so it stays cheap enough to poll every few seconds.
 
 ## Security notes
 

@@ -8,14 +8,32 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
+const healthPath = "/healthz"
+
+// requestLogger logs every request except the health endpoint, which a container
+// or uptime monitor polls often enough to drown out the rest of the log.
+func requestLogger(next http.Handler) http.Handler {
+	logged := middleware.Logger(next)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == healthPath {
+			next.ServeHTTP(w, r)
+			return
+		}
+		logged.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) setupRoutes() http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	r.Use(requestLogger)
 	r.Use(middleware.Recoverer)
 
 	staticContent, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))
+
+	r.Get(healthPath, s.handleHealth)
 
 	r.Get("/login", s.handleLoginPage)
 	r.Post("/login", s.handleLogin)
