@@ -16,7 +16,7 @@ func TestCompilerCompileTeX(t *testing.T) {
 
 	writeExecutable(t, tectonicPath, `#!/bin/sh
 set -eu
-entry="$3"
+entry="$1"
 pdf="${entry%.*}.pdf"
 printf '%s\n' "$@" > tectonic.args
 printf 'fake-tex-pdf' > "$pdf"
@@ -41,7 +41,7 @@ exit 1
 		t.Fatalf("failed reading tectonic args: %v", err)
 	}
 	args := strings.Fields(string(argsContent))
-	want := []string{"-X", "compile", "main.tex"}
+	want := []string{"main.tex"}
 	if len(args) != len(want) {
 		t.Fatalf("unexpected tectonic args %v", args)
 	}

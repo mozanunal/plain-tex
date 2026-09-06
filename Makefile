@@ -4,6 +4,7 @@ BIN_DIR := bin
 BINARY := $(BIN_DIR)/poly-txt
 CSS_INPUT := internal/app/static/input.css
 CSS_OUTPUT := internal/app/static/style.css
+DOCKER_IMAGE := poly-txt:latest
 
 .PHONY: help
 help: ## Show this help
@@ -49,6 +50,17 @@ check: format lint test ## Run format, lint, and test
 
 .PHONY: ci
 ci: check build ## Run all checks then build
+
+.PHONY: docker-build
+docker-build: ## Build the Docker image (poly-txt:latest)
+	docker build -t $(DOCKER_IMAGE) .
+
+.PHONY: docker-run
+docker-run: docker-build ## Run the container (uses $$JWT_SECRET or a random one)
+	docker run --rm -p 3000:3000 \
+		-e JWT_SECRET=$${JWT_SECRET:-$$(openssl rand -hex 32)} \
+		-v poly-txt-data:/data \
+		--name poly-txt $(DOCKER_IMAGE)
 
 .PHONY: clean
 clean: ## Remove build artifacts

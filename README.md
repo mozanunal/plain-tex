@@ -30,7 +30,8 @@ poly-txt is a self-hosted collaborative editor for LaTeX/Typst projects. It prov
 
 - Go 1.22+
 - `tectonic` installed and available on `PATH` (or set `TECTONIC_BIN`)
-- `typst` installed and available on `PATH` (or set `TYPST_BIN`)
+- `typst` 0.14.0 or newer on `PATH` (or set `TYPST_BIN`). Markdown rendering uses
+  the `cmarker` Typst package, which requires 0.14.0+.
 - Optional for CSS targets in `Makefile`: Node.js + `npx`
 
 ## Quick Start
@@ -47,6 +48,18 @@ Account bootstrap flow:
 2. That first user is admin.
 3. After at least one user exists, public registration is disabled.
 4. Admins create additional users from `/admin/users`.
+
+## Deployment
+
+Run it with Docker:
+
+```bash
+JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+```
+
+See [docs/deployment.md](docs/deployment.md) for the full guide, covering image
+builds, configuration, data persistence and backups, TLS via a reverse proxy,
+updates, and running without Docker.
 
 ## Configuration
 

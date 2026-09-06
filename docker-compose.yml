@@ -1,0 +1,17 @@
+services:
+  poly-txt:
+    build: .
+    image: poly-txt:latest
+    container_name: poly-txt
+    ports:
+      - "3000:3000"
+    environment:
+      # Required. Generate once with: openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in your environment or .env file}
+      # PORT and DATA_DIR already have sensible defaults in the image.
+    volumes:
+      - poly-txt-data:/data
+    restart: unless-stopped
+
+volumes:
+  poly-txt-data:

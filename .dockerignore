@@ -1,0 +1,27 @@
+# VCS and CI
+.git
+.github
+
+# Local runtime data (SQLite DB, project files, caches)
+data
+
+# Build artifacts and the committed dev binary
+bin
+/server
+internal/app/static/style.css
+
+# Dependencies
+node_modules
+
+# Editor and OS cruft
+.idea
+.vscode
+*.swp
+.DS_Store
+*.log
+
+# Docs and Docker files are not needed inside the build context
+docs
+Dockerfile
+.dockerignore
+docker-compose.yml

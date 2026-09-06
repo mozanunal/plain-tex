@@ -46,7 +46,10 @@ func (c *Compiler) Compile(workDir string, entryFile string) ([]byte, string, er
 
 	switch ext {
 	case ".tex":
-		cmd = exec.Command(c.tectonicBin, "-X", "compile", entryFile)
+		// The V1 CLI is used instead of "-X compile" because the V2 CLI is only
+		// available in tectonic builds compiled with the "serialization" feature,
+		// which most distribution packages omit. Both produce identical output.
+		cmd = exec.Command(c.tectonicBin, entryFile)
 	case ".typ":
 		cmd = exec.Command(c.typstBin, "compile", entryFile, pdfFile)
 	case ".md":
