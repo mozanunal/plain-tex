@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -59,6 +60,9 @@ type SyncOptions struct {
 	Auth        Auth
 	AuthorName  string
 	AuthorEmail string
+	// Rebase replays local commits on top of the remote branch instead of
+	// requiring a fast-forward. Used to recover from a diverged branch.
+	Rebase bool
 }
 
 type CommitOptions struct {
@@ -73,6 +77,9 @@ type RepoStatus struct {
 	ChangedFiles          int
 	ChangedFileNames      []string
 	LastCommit            string
+	Ahead                 int
+	Behind                int
+	TrackingRemote        bool
 }
 
 type PushResult struct {
@@ -198,6 +205,8 @@ func (c *Client) Status(ctx context.Context, repoDir string) (RepoStatus, error)
 		status.LastCommit = lastCommit
 	}
 
+	status.Ahead, status.Behind, status.TrackingRemote = c.divergence(ctx, repoDir, currentBranch)
+
 	return status, nil
 }
 
@@ -282,12 +291,104 @@ func (c *Client) Pull(ctx context.Context, opts SyncOptions) error {
 		if err := c.SwitchBranch(ctx, opts.RepoDir, opts.Branch); err != nil {
 			return err
 		}
-		if _, err := c.run(ctx, opts.RepoDir, opts.Auth, nil, "pull", "--ff-only", "origin", opts.Branch); err != nil {
-			return err
+		if opts.Rebase {
+			name, email := authorIdentity(opts)
+			args := []string{
+				"-c", "user.name=" + name,
+				"-c", "user.email=" + email,
+				"pull", "--rebase", "origin", opts.Branch,
+			}
+			if _, err := c.run(ctx, opts.RepoDir, opts.Auth, nil, args...); err != nil {
+				// A stopped rebase leaves the repo mid-operation with conflict
+				// markers, and there is no way to resolve that from the editor,
+				// so roll all the way back and report the original failure.
+				_, _ = c.run(ctx, opts.RepoDir, Auth{}, nil, "rebase", "--abort")
+				return err
+			}
+		} else {
+			if _, err := c.run(ctx, opts.RepoDir, opts.Auth, nil, "pull", "--ff-only", "origin", opts.Branch); err != nil {
+				return err
+			}
 		}
 	}
 
 	return c.ensureLocalExcludes(opts.RepoDir)
+}
+
+// ResetToRemote discards local commits and working tree changes so the branch
+// matches the remote exactly. This permanently destroys unpushed work.
+func (c *Client) ResetToRemote(ctx context.Context, opts SyncOptions) error {
+	if !c.IsRepo(ctx, opts.RepoDir) {
+		return errors.New("project repository is not initialized")
+	}
+	if strings.TrimSpace(opts.Branch) == "" {
+		return errors.New("branch is required")
+	}
+	if strings.TrimSpace(opts.RemoteURL) == "" {
+		return errors.New("remote URL is required")
+	}
+
+	if err := c.EnsureRemote(ctx, opts.RepoDir, opts.RemoteURL); err != nil {
+		return err
+	}
+	if _, err := c.run(ctx, opts.RepoDir, opts.Auth, nil, "fetch", "origin", opts.Branch); err != nil {
+		return err
+	}
+	if !c.remoteBranchExists(ctx, opts.RepoDir, opts.Branch) {
+		return fmt.Errorf("remote branch %q was not found", opts.Branch)
+	}
+	if err := c.SwitchBranch(ctx, opts.RepoDir, opts.Branch); err != nil {
+		return err
+	}
+	if _, err := c.run(ctx, opts.RepoDir, Auth{}, nil, "reset", "--hard", "origin/"+opts.Branch); err != nil {
+		return err
+	}
+	if _, err := c.run(ctx, opts.RepoDir, Auth{}, nil, "clean", "-fd"); err != nil {
+		return err
+	}
+
+	return c.ensureLocalExcludes(opts.RepoDir)
+}
+
+// divergence reports how many commits the local branch is ahead of and behind
+// its remote counterpart, based on the last fetch. It performs no network I/O.
+func (c *Client) divergence(ctx context.Context, repoDir string, branch string) (ahead int, behind int, tracking bool) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" || !c.hasCommit(ctx, repoDir) || !c.remoteBranchExists(ctx, repoDir, branch) {
+		return 0, 0, false
+	}
+
+	out, err := c.output(ctx, repoDir, Auth{}, "rev-list", "--left-right", "--count", "origin/"+branch+"...HEAD")
+	if err != nil {
+		return 0, 0, false
+	}
+
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	behind, err = strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	ahead, err = strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, false
+	}
+
+	return ahead, behind, true
+}
+
+func authorIdentity(opts SyncOptions) (string, string) {
+	name := strings.TrimSpace(opts.AuthorName)
+	if name == "" {
+		name = "poly-txt"
+	}
+	email := strings.TrimSpace(opts.AuthorEmail)
+	if email == "" {
+		email = "poly-txt@local"
+	}
+	return name, email
 }
 
 func (c *Client) Push(ctx context.Context, opts CommitOptions) (PushResult, error) {
@@ -323,14 +424,7 @@ func (c *Client) Push(ctx context.Context, opts CommitOptions) (PushResult, erro
 	if dirty, err := c.worktreeDirty(ctx, opts.RepoDir); err != nil {
 		return PushResult{}, err
 	} else if dirty {
-		authorName := strings.TrimSpace(opts.AuthorName)
-		if authorName == "" {
-			authorName = "poly-txt"
-		}
-		authorEmail := strings.TrimSpace(opts.AuthorEmail)
-		if authorEmail == "" {
-			authorEmail = "poly-txt@local"
-		}
+		authorName, authorEmail := authorIdentity(opts.SyncOptions)
 		commitMessage := strings.TrimSpace(opts.CommitMessage)
 		if commitMessage == "" {
 			commitMessage = "Update project"

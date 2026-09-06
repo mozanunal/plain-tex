@@ -69,6 +69,8 @@ func (s *Server) setupRoutes() http.Handler {
 		r.Get("/api/projects/{id}/git/status", s.handleGitStatus)
 		r.Post("/api/projects/{id}/git/config", s.handleGitConfig)
 		r.Post("/api/projects/{id}/git/pull", s.handleGitPull)
+		r.Post("/api/projects/{id}/git/pull-rebase", s.handleGitPullRebase)
+		r.Post("/api/projects/{id}/git/reset-to-remote", s.handleGitResetToRemote)
 		r.Post("/api/projects/{id}/git/push", s.handleGitPush)
 		r.Post("/api/projects/{id}/git/reset", s.handleGitReset)
 

@@ -262,6 +262,27 @@
                                 </button>
                             </div>
                             <p id="git-pull-disabled-hint" class="hidden text-[11px] text-amber-400">Commit or push changes before pulling.</p>
+                            <div id="git-diverged-panel" class="hidden mt-3 rounded border border-amber-500/40 bg-amber-500/10 p-2.5 space-y-2">
+                                <p class="text-[11px] font-medium text-amber-200">
+                                    Branch has diverged: <span id="git-diverged-summary"></span>.
+                                    A plain pull cannot fast-forward.
+                                </p>
+                                <div class="flex flex-wrap gap-2">
+                                    <button id="git-rebase-btn" type="button"
+                                        class="rounded bg-amber-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-amber-500 inline-flex items-center justify-center gap-1.5">
+                                        <svg id="git-rebase-spinner" class="hidden animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                        <span>Pull with rebase</span>
+                                    </button>
+                                    <button id="git-discard-btn" type="button"
+                                        class="rounded border border-red-500/50 px-2.5 py-1.5 text-[11px] font-medium text-red-300 hover:bg-red-500/20 inline-flex items-center justify-center gap-1.5">
+                                        <svg id="git-discard-spinner" class="hidden animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                        <span>Discard local commits</span>
+                                    </button>
+                                </div>
+                                <p class="text-[11px] text-amber-200/70">
+                                    Rebase replays your commits on top of the remote. Discarding permanently deletes them.
+                                </p>
+                            </div>
                         </div>
                         {{else}}
                         <div class="p-3 border-b border-gray-700">
@@ -274,6 +295,7 @@
                             <p>Branch: <span id="git-branch-display" class="text-gray-400">-</span></p>
                             <p>Last sync: <span id="git-last-sync-display" class="text-gray-400">Never</span></p>
                             <p>Working tree: <span id="git-working-tree-display" class="text-gray-400">Unavailable</span></p>
+                            <p>Sync state: <span id="git-sync-state-display" class="text-gray-400">Unavailable</span></p>
                             <p>Last commit: <span id="git-last-commit-display" class="text-gray-400">Unavailable</span></p>
                             <p>User key: <span id="git-user-key-display" class="text-gray-400">{{if .UserGitKey}}{{.UserGitKey.Fingerprint}}{{else}}Not generated{{end}}</span></p>
                         </div>
@@ -2460,7 +2482,9 @@
         document.getElementById('git-branch-display').textContent = configured ? (gitStatus.branch || '-') : '-';
         document.getElementById('git-last-sync-display').textContent = configured ? formatGitTimestamp(gitStatus.lastSync) : 'Never';
         document.getElementById('git-working-tree-display').textContent = workingTree;
+        document.getElementById('git-sync-state-display').textContent = describeSyncState(gitStatus, configured, repoPresent);
         document.getElementById('git-last-commit-display').textContent = lastCommit;
+        updateDivergedPanel(gitStatus, configured, repoPresent);
         document.getElementById('git-user-key-display').textContent = hasSSHKey
             ? (gitStatus.sshKeyFingerprint || 'Available')
             : 'Not generated';
@@ -2555,6 +2579,103 @@
         }
     }
 
+    function commitCountLabel(count) {
+        return `${count} commit${count === 1 ? '' : 's'}`;
+    }
+
+    function describeSyncState(status, configured, repoPresent) {
+        if (!configured || !repoPresent) return 'Unavailable';
+        if (!status.trackingRemote) return 'No remote branch fetched yet';
+
+        const ahead = Number(status.ahead || 0);
+        const behind = Number(status.behind || 0);
+        if (ahead === 0 && behind === 0) return 'Up to date with origin';
+        if (ahead > 0 && behind > 0) {
+            return `Diverged: ${commitCountLabel(ahead)} ahead, ${commitCountLabel(behind)} behind`;
+        }
+        if (ahead > 0) return `${commitCountLabel(ahead)} ahead of origin`;
+        return `${commitCountLabel(behind)} behind origin`;
+    }
+
+    function updateDivergedPanel(status, configured, repoPresent) {
+        const panel = document.getElementById('git-diverged-panel');
+        if (!panel) return;
+
+        const diverged = configured && repoPresent && !!status.diverged;
+        if (!diverged) {
+            panel.classList.add('hidden');
+            return;
+        }
+
+        const summary = document.getElementById('git-diverged-summary');
+        if (summary) {
+            summary.textContent = `${commitCountLabel(Number(status.ahead || 0))} of yours, `
+                + `${commitCountLabel(Number(status.behind || 0))} on the remote`;
+        }
+        panel.classList.remove('hidden');
+    }
+
+    // Shared by the two divergence recovery actions, which differ only in
+    // endpoint, spinner, and the confirmation they require.
+    async function runGitRecovery({ endpoint, buttonId, spinnerId, fallbackError }) {
+        const button = document.getElementById(buttonId);
+        const spinner = document.getElementById(spinnerId);
+        setElementDisabled(button, true);
+        if (spinner) spinner.classList.remove('hidden');
+
+        try {
+            const response = await fetch(`/api/projects/${projectId}/git/${endpoint}`, {
+                method: 'POST',
+            });
+            if (!response.ok) {
+                showGitFeedback((await response.text()).trim() || fallbackError, true);
+                return;
+            }
+
+            const payload = await response.json();
+            await reloadWorkspaceFromDisk(currentFile);
+            await loadComments();
+            await loadGitStatus(false);
+            showGitFeedback(payload.status || 'Done');
+        } catch (_) {
+            showGitFeedback(fallbackError, true);
+        } finally {
+            if (spinner) spinner.classList.add('hidden');
+            setElementDisabled(button, false);
+            updateGitUI(gitStatus);
+        }
+    }
+
+    async function gitPullRebase() {
+        if (Object.keys(unsavedChanges).length > 0) {
+            showGitFeedback('Save or discard editor changes before rebasing.', true);
+            return;
+        }
+        await runGitRecovery({
+            endpoint: 'pull-rebase',
+            buttonId: 'git-rebase-btn',
+            spinnerId: 'git-rebase-spinner',
+            fallbackError: 'Failed to rebase onto the remote branch.',
+        });
+    }
+
+    async function gitDiscardLocalCommits() {
+        const ahead = Number(gitStatus.ahead || 0);
+        const confirmed = confirm(
+            `This permanently discards ${commitCountLabel(ahead)} that exist only in this project, `
+            + `along with any uncommitted changes, so it matches origin/${gitStatus.branch || 'main'}.\n\n`
+            + 'This cannot be undone. Continue?'
+        );
+        if (!confirmed) return;
+
+        await runGitRecovery({
+            endpoint: 'reset-to-remote',
+            buttonId: 'git-discard-btn',
+            spinnerId: 'git-discard-spinner',
+            fallbackError: 'Failed to reset to the remote branch.',
+        });
+    }
+
     async function gitPull() {
         if (!gitStatus.configured) {
             showGitFeedback('Configure Git sync before pulling.', true);
@@ -2576,6 +2697,9 @@
             });
             if (!response.ok) {
                 const message = (await response.text()).trim() || 'Failed to pull latest changes';
+                // The attempt already fetched, so refreshing now reveals the
+                // divergence panel with the recovery actions.
+                await loadGitStatus(false);
                 showGitFeedback(message, true);
                 return;
             }
@@ -3325,6 +3449,14 @@
     const gitResetButton = document.getElementById('git-reset-btn');
     if (gitResetButton) {
         gitResetButton.addEventListener('click', gitReset);
+    }
+    const gitRebaseButton = document.getElementById('git-rebase-btn');
+    if (gitRebaseButton) {
+        gitRebaseButton.addEventListener('click', gitPullRebase);
+    }
+    const gitDiscardButton = document.getElementById('git-discard-btn');
+    if (gitDiscardButton) {
+        gitDiscardButton.addEventListener('click', gitDiscardLocalCommits);
     }
     document.getElementById('git-changed-files-toggle').addEventListener('click', () => {
         const list = document.getElementById('git-changed-files-list');

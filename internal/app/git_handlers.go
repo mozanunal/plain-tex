@@ -46,6 +46,10 @@ type GitStatusResponse struct {
 	ChangedFiles          int      `json:"changedFiles"`
 	ChangedFileNames      []string `json:"changedFileNames"`
 	LastCommit            string   `json:"lastCommit"`
+	Ahead                 int      `json:"ahead"`
+	Behind                int      `json:"behind"`
+	Diverged              bool     `json:"diverged"`
+	TrackingRemote        bool     `json:"trackingRemote"`
 }
 
 func (s *Server) handleGenerateUserGitKey(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +235,10 @@ func (s *Server) handleGitStatus(w http.ResponseWriter, r *http.Request) {
 		ChangedFiles:          repoStatus.ChangedFiles,
 		ChangedFileNames:      repoStatus.ChangedFileNames,
 		LastCommit:            repoStatus.LastCommit,
+		Ahead:                 repoStatus.Ahead,
+		Behind:                repoStatus.Behind,
+		Diverged:              repoStatus.Ahead > 0 && repoStatus.Behind > 0,
+		TrackingRemote:        repoStatus.TrackingRemote,
 	})
 }
 
@@ -306,6 +314,17 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
+	s.pullWithStrategy(w, r, false)
+}
+
+// handleGitPullRebase recovers a diverged branch by replaying the local commits
+// on top of the remote branch. It is a separate action from Pull because it
+// rewrites local history, so it should never happen implicitly.
+func (s *Server) handleGitPullRebase(w http.ResponseWriter, r *http.Request) {
+	s.pullWithStrategy(w, r, true)
+}
+
+func (s *Server) pullWithStrategy(w http.ResponseWriter, r *http.Request, rebase bool) {
 	user := getUserFromContext(r.Context())
 	access, ok := s.requireProjectAccess(w, r, projectAccessWrite)
 	if !ok {
@@ -333,6 +352,60 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.git.Pull(r.Context(), gitclient.SyncOptions{
+		RepoDir:     filepath.Join(s.projectsDir, access.ProjectID),
+		RemoteURL:   cfg.RemoteURL,
+		Branch:      cfg.Branch,
+		Auth:        auth,
+		AuthorName:  user.Name,
+		AuthorEmail: user.Email,
+		Rebase:      rebase,
+	}); err != nil {
+		http.Error(w, renderPullError(err, rebase), http.StatusBadRequest)
+		return
+	}
+
+	s.updateProjectGitLastSync(access.ProjectID)
+	s.touchProject(access.ProjectID)
+
+	status := "Pulled latest changes"
+	if rebase {
+		status = "Rebased your commits onto the remote branch"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
+}
+
+// handleGitResetToRemote discards local commits so the branch matches the
+// remote. It permanently destroys unpushed work, so the UI confirms first.
+func (s *Server) handleGitResetToRemote(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+	access, ok := s.requireProjectAccess(w, r, projectAccessWrite)
+	if !ok {
+		return
+	}
+
+	cfg, err := s.getProjectGitConfig(access.ProjectID)
+	if err == sql.ErrNoRows {
+		http.Error(w, "Git sync is not configured for this project", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, "Failed to load Git configuration", http.StatusInternalServerError)
+		return
+	}
+
+	_, auth, err := s.getOptionalUserGitAuth(user.ID)
+	if err != nil {
+		http.Error(w, gitKeyLoadErrorMessage(err), http.StatusBadRequest)
+		return
+	}
+	if err := ensureUserGitKeyForRemote(cfg.RemoteURL, auth); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := s.git.ResetToRemote(r.Context(), gitclient.SyncOptions{
 		RepoDir:   filepath.Join(s.projectsDir, access.ProjectID),
 		RemoteURL: cfg.RemoteURL,
 		Branch:    cfg.Branch,
@@ -347,8 +420,28 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "Pulled latest changes",
+		"status": "Local commits discarded. This project now matches the remote.",
 	})
+}
+
+// renderPullError explains the two failures a user cannot act on from the raw
+// git output alone: a refused fast-forward, and a rebase stopped by conflicts.
+func renderPullError(err error, rebase bool) string {
+	message := renderGitError(err)
+
+	switch {
+	case !rebase && strings.Contains(message, "Not possible to fast-forward"):
+		return "Your branch and the remote have both moved on, so a plain pull would have to merge.\n\n" +
+			"Use \"Pull with rebase\" to replay your local commits on top of the remote, " +
+			"or discard your local commits to match the remote.\n\n" + message
+	case rebase && strings.Contains(strings.ToLower(message), "conflict"):
+		return "The rebase hit conflicting edits, so it was rolled back and nothing changed.\n\n" +
+			"The same lines were changed locally and on the remote. Resolve it by discarding " +
+			"your local commits to match the remote, or by editing the conflicting file " +
+			"so it no longer clashes.\n\n" + message
+	}
+
+	return message
 }
 
 func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
