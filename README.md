@@ -68,7 +68,7 @@ Environment variables:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP listen port |
-| `JWT_SECRET` | `change-me-in-production` | JWT signing secret (set this in production) |
+| `JWT_SECRET` | `change-me-in-production` | Signs session cookies **and encrypts stored SSH private keys**. Set it in production and keep it stable: changing it makes saved SSH keys undecryptable. |
 | `DATA_DIR` | `data` | Base directory for SQLite DB and project files |
 | `TECTONIC_BIN` | `tectonic` | Path to tectonic binary |
 | `TYPST_BIN` | `typst` | Path to typst binary |

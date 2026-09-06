@@ -2338,16 +2338,38 @@
     function showGitFeedback(message, isError = false) {
         const el = document.getElementById('git-feedback');
         if (!el) return;
-        el.textContent = message;
+
         el.className = isError
             ? 'mx-3 mt-3 rounded px-3 py-2 text-xs font-medium bg-red-500/20 text-red-200 border border-red-500/30'
             : 'mx-3 mt-3 rounded px-3 py-2 text-xs font-medium bg-emerald-500/20 text-emerald-200 border border-emerald-500/30';
-        el.classList.remove('hidden');
-        if (gitFeedbackTimer) clearTimeout(gitFeedbackTimer);
-        gitFeedbackTimer = setTimeout(() => {
-            el.classList.add('hidden');
+
+        el.textContent = '';
+        const body = document.createElement('div');
+        body.textContent = message;
+        body.className = 'whitespace-pre-wrap break-words max-h-48 overflow-auto font-mono leading-relaxed';
+        el.appendChild(body);
+
+        if (gitFeedbackTimer) {
+            clearTimeout(gitFeedbackTimer);
             gitFeedbackTimer = null;
-        }, 4000);
+        }
+
+        if (isError) {
+            // Git errors are multi-line and actionable, so they stay until dismissed.
+            const dismiss = document.createElement('button');
+            dismiss.type = 'button';
+            dismiss.textContent = 'Dismiss';
+            dismiss.className = 'mt-2 rounded border border-red-500/40 px-2 py-0.5 text-[11px] font-medium hover:bg-red-500/20';
+            dismiss.addEventListener('click', () => el.classList.add('hidden'));
+            el.appendChild(dismiss);
+        } else {
+            gitFeedbackTimer = setTimeout(() => {
+                el.classList.add('hidden');
+                gitFeedbackTimer = null;
+            }, 4000);
+        }
+
+        el.classList.remove('hidden');
     }
 
     function renderChangedFiles(fileNames) {

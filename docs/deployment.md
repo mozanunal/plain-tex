@@ -118,8 +118,20 @@ defaults for everything except `JWT_SECRET`.
 | `TYPST_BIN` | `typst` | Path to the typst binary |
 | `GIT_BIN` | `git` | Path to the git binary |
 
-Keep `JWT_SECRET` stable across restarts and deploys. If it changes, existing
-session cookies stop validating and users have to sign in again.
+### JWT_SECRET is more than a session key
+
+Keep `JWT_SECRET` stable across restarts and deploys. It is used for two things:
+
+1. Signing session cookies. Changing it logs everyone out, which is recoverable.
+2. Encrypting each user's **SSH private key** at rest (AES-GCM with a key derived
+   from the secret). Changing it makes every stored SSH key permanently
+   undecryptable, and Git pull, push, and clone over SSH will fail with a message
+   saying the saved key could not be decrypted.
+
+The second one is not recoverable. If you lose the secret, each user has to
+generate a new key on the Settings page and add the new public key to their Git
+host. Back the secret up somewhere safe, and never generate it fresh on each
+start.
 
 ## Data persistence and backups
 
@@ -353,5 +365,6 @@ sudo systemctl enable --now poly-txt
 | Git clone over SSH fails | The remote host key or the deploy key is not set up. Add the account SSH public key (Settings page) to the Git host. |
 | Permission denied writing to a bind mount | The host directory is not writable by UID 1000. `chown -R 1000:1000` the directory. |
 | Everyone got logged out after a deploy | `JWT_SECRET` changed. Keep it stable across deploys. |
+| `your saved SSH key could not be decrypted` | `JWT_SECRET` changed since the key was generated. Restore the old secret, or regenerate the key in Settings and add the new public key to your Git host. |
 | `package requires typst 0.14.0 or newer` | The image has an older Typst. Rebuild with `--build-arg TYPST_VERSION=0.15.1` or newer. |
 | `the "V2" Tectonic CLI requires ... the "serialization" Cargo feature` | A tectonic build without V2 support. poly-txt uses the V1 CLI, so make sure you are on a current build of poly-txt. |

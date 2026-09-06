@@ -21,3 +21,6 @@ node_modules/
 *.log
 /server
 /internal/app/static/style.css
+
+# Local signing secret (also decrypts stored SSH keys)
+.jwt_secret

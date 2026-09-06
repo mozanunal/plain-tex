@@ -5,6 +5,7 @@ BINARY := $(BIN_DIR)/poly-txt
 CSS_INPUT := internal/app/static/input.css
 CSS_OUTPUT := internal/app/static/style.css
 DOCKER_IMAGE := poly-txt:latest
+SECRET_FILE := .jwt_secret
 
 .PHONY: help
 help: ## Show this help
@@ -56,9 +57,11 @@ docker-build: ## Build the Docker image (poly-txt:latest)
 	docker build -t $(DOCKER_IMAGE) .
 
 .PHONY: docker-run
-docker-run: docker-build ## Run the container (uses $$JWT_SECRET or a random one)
+docker-run: docker-build ## Run the container (reuses the secret in .jwt_secret)
+	@test -f $(SECRET_FILE) || { openssl rand -hex 32 > $(SECRET_FILE); \
+		echo "Generated a new signing secret in $(SECRET_FILE). Keep it: it also decrypts stored SSH keys."; }
 	docker run --rm -p 3000:3000 \
-		-e JWT_SECRET=$${JWT_SECRET:-$$(openssl rand -hex 32)} \
+		-e JWT_SECRET="$$(cat $(SECRET_FILE))" \
 		-v poly-txt-data:/data \
 		--name poly-txt $(DOCKER_IMAGE)
 

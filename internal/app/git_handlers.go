@@ -104,7 +104,7 @@ func (s *Server) handleCloneProject(w http.ResponseWriter, r *http.Request) {
 
 	_, auth, err := s.getOptionalUserGitAuth(user.ID)
 	if err != nil {
-		redirectWithMessage(w, r, "/", "", "Failed to load your SSH key")
+		redirectWithMessage(w, r, "/", "", gitKeyLoadErrorMessage(err))
 		return
 	}
 	if err := ensureUserGitKeyForRemote(remoteURL, auth); err != nil {
@@ -324,7 +324,7 @@ func (s *Server) handleGitPull(w http.ResponseWriter, r *http.Request) {
 
 	_, auth, err := s.getOptionalUserGitAuth(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to load your SSH key", http.StatusInternalServerError)
+		http.Error(w, gitKeyLoadErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if err := ensureUserGitKeyForRemote(cfg.RemoteURL, auth); err != nil {
@@ -370,7 +370,7 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 
 	_, auth, err := s.getOptionalUserGitAuth(user.ID)
 	if err != nil {
-		http.Error(w, "Failed to load your SSH key", http.StatusInternalServerError)
+		http.Error(w, gitKeyLoadErrorMessage(err), http.StatusBadRequest)
 		return
 	}
 	if err := ensureUserGitKeyForRemote(cfg.RemoteURL, auth); err != nil {
@@ -494,6 +494,21 @@ func (s *Server) getUserGitKeySummary(userID string) (*UserGitKeySummary, error)
 	}, nil
 }
 
+// errUserGitKeyUndecryptable means the stored SSH private key could not be
+// decrypted. The key is sealed with a key derived from JWT_SECRET, so this
+// almost always means JWT_SECRET changed since the key was generated.
+var errUserGitKeyUndecryptable = errors.New(
+	"your saved SSH key could not be decrypted, which usually means JWT_SECRET changed since it was generated. " +
+		"Generate a new key on the Settings page and add it to your Git host, or restore the previous JWT_SECRET.",
+)
+
+func gitKeyLoadErrorMessage(err error) string {
+	if errors.Is(err, errUserGitKeyUndecryptable) {
+		return errUserGitKeyUndecryptable.Error()
+	}
+	return "Failed to load your SSH key"
+}
+
 func (s *Server) getOptionalUserGitAuth(userID string) (userGitKeyRecord, gitclient.Auth, error) {
 	key, err := s.getUserGitKey(userID)
 	if err == sql.ErrNoRows {
@@ -505,7 +520,7 @@ func (s *Server) getOptionalUserGitAuth(userID string) (userGitKeyRecord, gitcli
 
 	privateKey, err := gitclient.DecryptSecret(s.jwtSecret, key.PrivateKeyEncrypted)
 	if err != nil {
-		return userGitKeyRecord{}, gitclient.Auth{}, err
+		return userGitKeyRecord{}, gitclient.Auth{}, errUserGitKeyUndecryptable
 	}
 
 	return key, gitclient.Auth{SSHPrivateKey: privateKey}, nil
