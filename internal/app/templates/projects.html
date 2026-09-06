@@ -1,64 +1,95 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Projects - plain-tex</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-  </head>
-  <body class="bg-gray-100 min-h-screen">
-    <div class="min-h-screen">
-      {{template "auth_nav" .}}
+  {{template "page_head" (dict "Title" "Projects" "Htmx" true)}}
+  <body class="bg-gray-50 min-h-screen text-gray-900">
+    {{template "auth_nav" .}}
 
-      <main class="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        {{if .Status}}
-        <div
-          class="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
-        >
-          {{.Status}}
-        </div>
-        {{end}} {{if .Error}}
-        <div
-          class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          {{.Error}}
-        </div>
-        {{end}}
+    <main class="max-w-7xl mx-auto px-4 py-8 space-y-8">
+      {{template "alerts" .}}
 
-        <div
-          class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
-        >
-          <h2 class="text-2xl font-bold text-gray-800">Projects</h2>
+      <section class="space-y-5">
+        <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          {{template "page_header" (dict "Title" "Projects" "Subtitle" "Your LaTeX and Typst workspaces")}}
           <form method="POST" action="/projects" class="flex gap-2">
             <input
               type="text"
               name="name"
-              placeholder="Project name"
+              placeholder="New project name"
+              required
               class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
             <button
               type="submit"
-              class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition"
+              class="whitespace-nowrap bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition"
             >
               New Project
             </button>
           </form>
         </div>
 
-        <section class="bg-white rounded-lg shadow p-5 space-y-4">
-          <div class="space-y-1">
-            <h3 class="text-lg font-semibold text-gray-800">Your SSH Key</h3>
-            <p class="text-sm text-gray-500">
-              SSH remotes use your account key. Add the public key below to GitHub, GitLab, or your Git host.
-            </p>
+        {{if .Projects}}
+        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {{range .Projects}}
+          <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col hover:shadow-md transition">
+            <div class="flex justify-between items-start mb-2 gap-2">
+              <h3 class="font-semibold text-gray-900 break-all">{{.Name}}</h3>
+              <span class="shrink-0 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{{.AccessRole}}</span>
+            </div>
+            <p class="text-xs text-gray-500">Updated {{.Updated}}</p>
+            {{if ne .AccessRole "owner"}}
+            <p class="text-xs text-gray-500 mt-1">Owner: {{.OwnerEmail}}</p>
+            {{end}}
+            <div class="mt-4 pt-4 border-t border-gray-100 flex items-center gap-2">
+              <a
+                href="/editor/{{.ID}}"
+                class="flex-1 bg-gray-900 text-white py-2 px-4 rounded-md text-center text-sm font-medium hover:bg-gray-800 transition"
+              >
+                Open Editor
+              </a>
+              {{if or (eq .AccessRole "owner") $.User.IsAdmin}}
+              <button
+                hx-delete="/projects/{{.ID}}"
+                hx-confirm="Delete this project?"
+                hx-target="closest div.bg-white"
+                hx-swap="outerHTML"
+                class="px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50 transition"
+              >
+                Delete
+              </button>
+              {{end}}
+            </div>
           </div>
-          {{if .UserGitKey}}
-          <div class="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-start">
+          {{end}}
+        </div>
+        {{else}}
+        <div class="bg-white rounded-lg border border-dashed border-gray-300 p-10 text-center">
+          <p class="text-gray-900 font-medium">No projects yet</p>
+          <p class="text-sm text-gray-500 mt-1">
+            Create your first project above, or clone one from a Git remote below.
+          </p>
+        </div>
+        {{end}}
+      </section>
+
+      <details class="group bg-white rounded-lg border border-gray-200 shadow-sm" open>
+        <summary class="flex cursor-pointer items-center justify-between px-5 py-4 list-none">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900">Git &amp; SSH</h2>
+            <p class="text-sm text-gray-500">Clone remotes and manage the SSH key for your account.</p>
+          </div>
+          <span class="text-gray-400 text-sm group-open:rotate-180 transition">▾</span>
+        </summary>
+
+        <div class="border-t border-gray-100 px-5 py-5 grid gap-6 lg:grid-cols-2">
+          <div class="space-y-4">
+            <div class="space-y-1">
+              <h3 class="text-sm font-semibold text-gray-900">Your SSH Key</h3>
+              <p class="text-xs text-gray-500">
+                SSH remotes use your account key. Add the public key to GitHub, GitLab, or your Git host.
+              </p>
+            </div>
+            {{if .UserGitKey}}
             <div class="space-y-2">
-              <div class="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                This is your public key. Add it to GitHub, GitLab, or your Git host. The private key stays inside plain-tex.
-              </div>
               <div class="text-xs text-gray-500">
                 <span class="font-medium text-gray-700">Fingerprint:</span> {{.UserGitKey.Fingerprint}}
               </div>
@@ -75,133 +106,67 @@
                 rows="4"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-xs text-gray-700 focus:outline-none"
               >{{.UserGitKey.PublicKey}}</textarea>
+              <div class="flex flex-wrap gap-2">
+                <form method="POST" action="/user/git-key/generate">
+                  <button type="submit" class="bg-gray-900 text-white py-2 px-4 rounded-md text-sm hover:bg-gray-800 transition">Regenerate Key</button>
+                </form>
+                <form method="POST" action="/user/git-key/delete">
+                  <button type="submit" class="border border-red-200 text-red-600 py-2 px-4 rounded-md text-sm hover:bg-red-50 transition">Delete Key</button>
+                </form>
+              </div>
+              <p class="text-xs text-gray-500">
+                Regenerating or deleting the key breaks SSH access until you update the public key on the remote host.
+              </p>
             </div>
-            <div class="flex flex-col gap-2">
+            {{else}}
+            <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 space-y-3">
+              <p class="text-sm text-amber-800">
+                No SSH key generated yet. Public HTTPS remotes can still be cloned without one.
+              </p>
               <form method="POST" action="/user/git-key/generate">
-                <button
-                  type="submit"
-                  class="w-full bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition"
-                >
-                  Regenerate Key
-                </button>
-              </form>
-              <form method="POST" action="/user/git-key/delete">
-                <button
-                  type="submit"
-                  class="w-full border border-red-200 text-red-600 py-2 px-4 rounded-md hover:bg-red-50 transition"
-                >
-                  Delete Key
-                </button>
+                <button type="submit" class="bg-gray-900 text-white py-2 px-4 rounded-md text-sm hover:bg-gray-800 transition">Generate SSH Key</button>
               </form>
             </div>
+            {{end}}
           </div>
-          <p class="text-xs text-gray-500">
-            Regenerating or deleting the key will break SSH access until you update the public key on the remote host.
-          </p>
-          {{else}}
-          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-            <p class="text-sm text-amber-800">
-              No SSH key generated yet. Public HTTPS remotes can still be cloned without one.
-            </p>
-            <form method="POST" action="/user/git-key/generate">
-              <button
-                type="submit"
-                class="bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition"
+
+          <div class="space-y-4">
+            <div class="space-y-1">
+              <h3 class="text-sm font-semibold text-gray-900">Clone from Git</h3>
+              <p class="text-xs text-gray-500">
+                Connect a remote repository and create a project from it. SSH remotes use your account key.
+              </p>
+            </div>
+            <form method="POST" action="/projects/clone" class="space-y-3">
+              <input
+                type="text"
+                name="remoteURL"
+                placeholder="git@github.com:org/repo.git or https://github.com/org/repo.git"
+                required
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                Generate SSH Key
-              </button>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="Project name (optional)"
+                  class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                <input
+                  type="text"
+                  name="branch"
+                  placeholder="Branch (optional)"
+                  class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+              </div>
+              <div class="flex items-center justify-between gap-4">
+                <p class="text-xs text-gray-500">Passphrase-protected keys are not supported yet.</p>
+                <button type="submit" class="whitespace-nowrap bg-gray-900 text-white py-2 px-4 rounded-md text-sm hover:bg-gray-800 transition">Clone Repository</button>
+              </div>
             </form>
           </div>
-          {{end}}
-        </section>
-
-        <section class="bg-white rounded-lg shadow p-5 space-y-4">
-          <div class="space-y-1">
-            <h3 class="text-lg font-semibold text-gray-800">Clone from Git</h3>
-            <p class="text-sm text-gray-500">
-              Connect a remote repository and create a project from it. SSH remotes use your account-level key above.
-            </p>
-          </div>
-          <form method="POST" action="/projects/clone" class="grid gap-3 lg:grid-cols-2">
-            <input
-              type="text"
-              name="remoteURL"
-              placeholder="git@github.com:org/repo.git or https://github.com/org/repo.git"
-              required
-              class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 lg:col-span-2"
-            >
-            <input
-              type="text"
-              name="name"
-              placeholder="Project name (optional)"
-              class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-            <input
-              type="text"
-              name="branch"
-              placeholder="Branch (optional, defaults to remote default)"
-              class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-            <div class="lg:col-span-2 flex items-center justify-between gap-4">
-              <p class="text-xs text-gray-500">
-                SSH authentication comes from your generated user key. Passphrase-protected keys are not supported yet.
-              </p>
-              <button
-                type="submit"
-                class="bg-gray-900 text-white py-2 px-4 rounded-md hover:bg-gray-800 transition"
-              >
-                Clone Repository
-              </button>
-            </div>
-          </form>
-        </section>
-
-        {{if .Projects}}
-        <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {{range .Projects}}
-          <div class="bg-white rounded-lg shadow p-4 flex flex-col">
-            <div class="flex justify-between items-start mb-2 gap-2">
-              <h3 class="font-semibold text-gray-800 break-all">{{.Name}}</h3>
-              <span
-                class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700"
-              >{{.AccessRole}}</span>
-            </div>
-            <p class="text-sm text-gray-500">Updated: {{.Updated}}</p>
-            {{if ne .AccessRole "owner"}}
-            <p class="text-sm text-gray-500 mb-4">Owner: {{.OwnerEmail}}</p>
-            {{else}}
-            <div class="mb-4"></div>
-            {{end}}
-            <div class="mt-auto flex gap-2">
-              <a
-                href="/editor/{{.ID}}"
-                class="flex-1 bg-gray-100 text-gray-700 py-2 px-4 rounded text-center hover:bg-gray-200 transition"
-              >
-                Open Editor
-              </a>
-              {{if or (eq .AccessRole "owner") $.User.IsAdmin}}
-              <button
-                hx-delete="/projects/{{.ID}}"
-                hx-confirm="Delete this project?"
-                hx-target="closest div.bg-white"
-                hx-swap="outerHTML"
-                class="text-red-500 hover:text-red-700 text-sm"
-              >
-                Delete
-              </button>
-              {{end}}
-            </div>
-          </div>
-          {{end}}
         </div>
-        {{else}}
-        <div class="bg-white rounded-lg shadow p-8 text-center">
-          <p class="text-gray-600 mb-4">
-            No projects yet. Create your first project to get started.
-          </p>
-        </div>
-        {{end}}
-      </main>
-    </div>
+      </details>
+    </main>
   </body>
 </html>

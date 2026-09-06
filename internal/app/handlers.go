@@ -36,6 +36,8 @@ type PageData struct {
 	CanComment           bool
 	CanManageMembers     bool
 	RegistrationDisabled bool
+	ActiveNav            string
+	AdminCount           int
 }
 
 type Project struct {
@@ -286,10 +288,11 @@ func (s *Server) handleProjectsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageData := PageData{
-		User:     user,
-		Projects: projects,
-		Status:   strings.TrimSpace(r.URL.Query().Get("status")),
-		Error:    strings.TrimSpace(r.URL.Query().Get("error")),
+		User:      user,
+		Projects:  projects,
+		ActiveNav: "home",
+		Status:    strings.TrimSpace(r.URL.Query().Get("status")),
+		Error:     strings.TrimSpace(r.URL.Query().Get("error")),
 	}
 
 	userGitKey, err := s.getUserGitKeySummary(user.ID)
@@ -336,11 +339,20 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	adminCount := 0
+	for _, candidate := range users {
+		if candidate.IsAdmin {
+			adminCount++
+		}
+	}
+
 	s.templates.ExecuteTemplate(w, "admin_users.html", PageData{
-		User:   user,
-		Users:  users,
-		Status: strings.TrimSpace(r.URL.Query().Get("status")),
-		Error:  strings.TrimSpace(r.URL.Query().Get("error")),
+		User:       user,
+		Users:      users,
+		AdminCount: adminCount,
+		ActiveNav:  "admin",
+		Status:     strings.TrimSpace(r.URL.Query().Get("status")),
+		Error:      strings.TrimSpace(r.URL.Query().Get("error")),
 	})
 }
 

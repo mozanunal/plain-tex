@@ -1,18 +1,28 @@
 {{define "auth_nav"}}
-<nav class="bg-white shadow">
-  <div class="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-    <a href="/" class="text-xl font-bold text-gray-800 hover:text-gray-700"
-    >plain-tex</a>
-    <div class="flex items-center gap-4 text-sm">
-      <a href="/" class="text-gray-700 font-medium">Home</a>
+<nav class="bg-white border-b border-gray-200">
+  <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+    <div class="flex items-center gap-6">
+      <a href="/" class="text-lg font-bold text-gray-900 hover:text-gray-700">plain-tex</a>
+      <div class="hidden sm:flex items-center gap-1 text-sm">
+        <a
+          href="/"
+          class="px-3 py-1.5 rounded-md font-medium {{if eq .ActiveNav "home"}}bg-gray-100 text-gray-900{{else}}text-gray-600 hover:bg-gray-50 hover:text-gray-900{{end}}"
+        >Home</a>
+        {{if .User.IsAdmin}}
+        <a
+          href="/admin/users"
+          class="px-3 py-1.5 rounded-md font-medium {{if eq .ActiveNav "admin"}}bg-gray-100 text-gray-900{{else}}text-gray-600 hover:bg-gray-50 hover:text-gray-900{{end}}"
+        >Admin</a>
+        {{end}}
+      </div>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+      <span class="hidden sm:inline text-gray-500">{{.User.Email}}</span>
       {{if .User.IsAdmin}}
-      <a href="/admin/users" class="text-gray-600 hover:text-gray-800">Admin</a>
+      <span class="hidden sm:inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">admin</span>
       {{end}}
-      <span class="text-gray-600">{{.User.Email}}</span>
       <form method="POST" action="/logout">
-        <button type="submit" class="text-red-600 hover:underline">
-          Logout
-        </button>
+        <button type="submit" class="text-gray-500 hover:text-red-600 font-medium">Logout</button>
       </form>
     </div>
   </div>

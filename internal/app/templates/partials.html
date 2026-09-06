@@ -1,0 +1,29 @@
+{{define "page_head"}}
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}} - plain-tex</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  {{if .Htmx}}<script src="https://unpkg.com/htmx.org@1.9.10"></script>{{end}}
+</head>
+{{end}}
+
+{{define "alerts"}}
+{{if .Status}}
+<div class="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+  {{.Status}}
+</div>
+{{end}}
+{{if .Error}}
+<div class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+  {{.Error}}
+</div>
+{{end}}
+{{end}}
+
+{{define "page_header"}}
+<div class="flex flex-col gap-1">
+  <h1 class="text-2xl font-bold text-gray-900">{{.Title}}</h1>
+  {{if .Subtitle}}<p class="text-sm text-gray-500">{{.Subtitle}}</p>{{end}}
+</div>
+{{end}}

@@ -1,37 +1,36 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Users - plain-tex</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-  </head>
-  <body class="bg-gray-100 min-h-screen">
-    <div class="min-h-screen">
-      {{template "auth_nav" .}}
+  {{template "page_head" (dict "Title" "Admin Users")}}
+  <body class="bg-gray-50 min-h-screen text-gray-900">
+    {{template "auth_nav" .}}
 
-      <main class="max-w-7xl mx-auto px-4 py-8 space-y-6">
-        {{if .Status}}
-        <div
-          class="rounded-md border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800"
-        >
-          {{.Status}}
-        </div>
-        {{end}} {{if .Error}}
-        <div
-          class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-        >
-          {{.Error}}
-        </div>
-        {{end}}
+    <main class="max-w-7xl mx-auto px-4 py-8 space-y-8">
+      {{template "alerts" .}}
 
-        <section class="bg-white rounded-lg shadow p-6 space-y-5">
-          <h2 class="text-xl font-semibold text-gray-800">Create User</h2>
-          <form
-            method="POST"
-            action="/admin/users"
-            class="grid gap-3 md:grid-cols-4"
-          >
+      {{template "page_header" (dict "Title" "User management" "Subtitle" "Create accounts and review who has access.")}}
+
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+          <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Total users</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900">{{len .Users}}</p>
+        </div>
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+          <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Admins</p>
+          <p class="mt-1 text-2xl font-bold text-indigo-600">{{.AdminCount}}</p>
+        </div>
+        <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+          <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Standard users</p>
+          <p class="mt-1 text-2xl font-bold text-gray-900">{{sub (len .Users) .AdminCount}}</p>
+        </div>
+      </div>
+
+      <section class="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-gray-900">Create user</h2>
+          <p class="text-sm text-gray-500">New accounts can sign in immediately with the password you set.</p>
+        </div>
+        <form method="POST" action="/admin/users" class="px-6 py-5 space-y-4">
+          <div class="grid gap-3 md:grid-cols-3">
             <input
               type="text"
               name="name"
@@ -53,15 +52,9 @@
               required
               class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-            <button
-              type="submit"
-              class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition"
-            >
-              Create User
-            </button>
-            <label
-              class="md:col-span-4 inline-flex items-center gap-2 text-sm text-gray-700"
-            >
+          </div>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"
                 name="is_admin"
@@ -70,39 +63,61 @@
               >
               Grant admin access
             </label>
-          </form>
-        </section>
-
-        <section class="bg-white rounded-lg shadow p-6">
-          <h2 class="text-xl font-semibold text-gray-800 mb-4">Users</h2>
-          {{if .Users}}
-          <div class="overflow-auto">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="text-left text-gray-500 border-b">
-                  <th class="py-2 pr-4">Email</th>
-                  <th class="py-2 pr-4">Name</th>
-                  <th class="py-2">Role</th>
-                </tr>
-              </thead>
-              <tbody>
-                {{range .Users}}
-                <tr class="border-b last:border-b-0">
-                  <td class="py-2 pr-4 text-gray-800">{{.Email}}</td>
-                  <td class="py-2 pr-4 text-gray-600">
-                    {{if .Name}}{{.Name}}{{else}}-{{end}}
-                  </td>
-                  <td class="py-2">{{if .IsAdmin}}admin{{else}}user{{end}}</td>
-                </tr>
-                {{end}}
-              </tbody>
-            </table>
+            <button
+              type="submit"
+              class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition"
+            >
+              Create User
+            </button>
           </div>
-          {{else}}
-          <p class="text-gray-600">No users found.</p>
-          {{end}}
-        </section>
-      </main>
-    </div>
+        </form>
+      </section>
+
+      <section class="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-gray-900">Users</h2>
+        </div>
+        {{if .Users}}
+        <div class="overflow-auto">
+          <table class="min-w-full text-sm">
+            <thead>
+              <tr class="text-left text-gray-500 border-b border-gray-100 bg-gray-50">
+                <th class="py-3 px-6 font-medium">User</th>
+                <th class="py-3 px-6 font-medium">Email</th>
+                <th class="py-3 px-6 font-medium">Role</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Users}}
+              <tr class="border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+                <td class="py-3 px-6">
+                  <div class="flex items-center gap-3">
+                    <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-700 uppercase">
+                      {{if .Name}}{{slice .Name 0 1}}{{else}}{{slice .Email 0 1}}{{end}}
+                    </span>
+                    <span class="font-medium text-gray-900">
+                      {{if .Name}}{{.Name}}{{else}}<span class="text-gray-400">No name</span>{{end}}
+                      {{if eq .ID $.User.ID}}<span class="ml-1 text-xs text-gray-400">(you)</span>{{end}}
+                    </span>
+                  </div>
+                </td>
+                <td class="py-3 px-6 text-gray-600">{{.Email}}</td>
+                <td class="py-3 px-6">
+                  {{if .IsAdmin}}
+                  <span class="inline-flex items-center rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700">admin</span>
+                  {{else}}
+                  <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">user</span>
+                  {{end}}
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+        {{else}}
+        <p class="px-6 py-8 text-gray-600">No users found.</p>
+        {{end}}
+      </section>
+    </main>
   </body>
 </html>
