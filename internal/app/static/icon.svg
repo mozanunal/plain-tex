@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="poly-txt">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+    <filter id="ds" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1" stdDeviation="1.2" flood-color="#0f172a" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tile)"/>
+
+  <g filter="url(#ds)">
+    <path d="M17 18 Q17 14 21 14 L36 14 L47 25 L47 46 Q47 50 43 50 L21 50 Q17 50 17 46 Z" fill="#ffffff"/>
+    <path d="M36 14 L47 25 L36 25 Z" fill="#cbd5e1"/>
+  </g>
+
+  <rect x="23" y="26.5" width="18" height="3" rx="1.5" fill="#06b6d4"/>
+  <rect x="23" y="33" width="12" height="3" rx="1.5" fill="#8b5cf6"/>
+  <rect x="23" y="39.5" width="15" height="3" rx="1.5" fill="#f59e0b"/>
+</svg>

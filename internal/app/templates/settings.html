@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  {{template "page_head" (dict "Title" "Settings")}}
+  <body class="bg-gray-50 min-h-screen text-gray-900">
+    {{template "auth_nav" .}}
+
+    <main class="max-w-3xl mx-auto px-4 py-8 space-y-8">
+      {{template "alerts" .}}
+
+      {{template "page_header" (dict "Title" "Settings" "Subtitle" "Manage your account, password, and Git access.")}}
+
+      <section class="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-semibold text-gray-900">Profile</h2>
+            <p class="text-sm text-gray-500">Your display name and sign-in email.</p>
+          </div>
+          <div class="text-right text-xs text-gray-500 shrink-0">
+            <div>
+              {{if .User.IsAdmin}}
+              <span class="inline-flex items-center rounded-full bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700">admin</span>
+              {{else}}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 font-medium text-gray-600">user</span>
+              {{end}}
+            </div>
+            <div class="mt-1">Member since {{.AccountCreated}}</div>
+          </div>
+        </div>
+        <form method="POST" action="/settings/profile" class="px-6 py-5 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Name</label>
+            <input
+              type="text"
+              name="name"
+              value="{{.User.Name}}"
+              placeholder="Your name"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              name="email"
+              value="{{.User.Email}}"
+              required
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+          </div>
+          <div class="flex justify-end">
+            <button type="submit" class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition">Save Profile</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-gray-900">Password</h2>
+          <p class="text-sm text-gray-500">Choose a new password of at least 6 characters.</p>
+        </div>
+        <form method="POST" action="/settings/password" class="px-6 py-5 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Current password</label>
+            <input
+              type="password"
+              name="current_password"
+              required
+              autocomplete="current-password"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">New password</label>
+              <input
+                type="password"
+                name="new_password"
+                minlength="6"
+                required
+                autocomplete="new-password"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Confirm new password</label>
+              <input
+                type="password"
+                name="confirm_password"
+                minlength="6"
+                required
+                autocomplete="new-password"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+            </div>
+          </div>
+          <div class="flex justify-end">
+            <button type="submit" class="bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition">Change Password</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h2 class="text-lg font-semibold text-gray-900">SSH Key</h2>
+          <p class="text-sm text-gray-500">
+            SSH remotes use this account key. Add the public key to GitHub, GitLab, or your Git host. The private key stays inside poly-txt.
+          </p>
+        </div>
+        <div class="px-6 py-5">
+          {{if .UserGitKey}}
+          <div class="space-y-2">
+            <div class="text-xs text-gray-500">
+              <span class="font-medium text-gray-700">Fingerprint:</span> {{.UserGitKey.Fingerprint}}
+            </div>
+            <div class="flex items-center justify-between">
+              <label class="block text-xs font-medium text-gray-700">Public Key</label>
+              <button
+                type="button"
+                onclick="(function(btn){var ta=btn.closest('.space-y-2').querySelector('textarea');navigator.clipboard.writeText(ta.value.trim()).then(function(){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)}).catch(function(){btn.textContent='Failed'})})(this)"
+                class="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              >Copy</button>
+            </div>
+            <textarea
+              readonly
+              rows="4"
+              class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-xs text-gray-700 focus:outline-none"
+            >{{.UserGitKey.PublicKey}}</textarea>
+            <div class="flex flex-wrap gap-2">
+              <form method="POST" action="/user/git-key/generate">
+                <button type="submit" class="bg-gray-900 text-white py-2 px-4 rounded-md text-sm hover:bg-gray-800 transition">Regenerate Key</button>
+              </form>
+              <form method="POST" action="/user/git-key/delete">
+                <button type="submit" class="border border-red-200 text-red-600 py-2 px-4 rounded-md text-sm hover:bg-red-50 transition">Delete Key</button>
+              </form>
+            </div>
+            <p class="text-xs text-gray-500">
+              Regenerating or deleting the key breaks SSH access until you update the public key on the remote host.
+            </p>
+          </div>
+          {{else}}
+          <div class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 space-y-3">
+            <p class="text-sm text-amber-800">
+              No SSH key generated yet. Public HTTPS remotes can still be cloned without one.
+            </p>
+            <form method="POST" action="/user/git-key/generate">
+              <button type="submit" class="bg-gray-900 text-white py-2 px-4 rounded-md text-sm hover:bg-gray-800 transition">Generate SSH Key</button>
+            </form>
+          </div>
+          {{end}}
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

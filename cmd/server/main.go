@@ -6,8 +6,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/mozanunal/plain-tex/internal/app"
-	"github.com/mozanunal/plain-tex/internal/db"
+	"github.com/mozanunal/poly-txt/internal/app"
+	"github.com/mozanunal/poly-txt/internal/db"
 )
 
 func main() {

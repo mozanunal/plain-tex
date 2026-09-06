@@ -1,7 +1,7 @@
 # Git Sync Feature Implementation Plan
 
 ## Overview
-Add two-way Git synchronization to plain-tex, enabling users to:
+Add two-way Git synchronization to poly-txt, enabling users to:
 - Clone Git repositories as new projects
 - Pull updates from remote repositories
 - Push local changes to remote repositories

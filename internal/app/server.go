@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"net/http"
 
-	"github.com/mozanunal/plain-tex/internal/gitclient"
+	"github.com/mozanunal/poly-txt/internal/gitclient"
 )
 
 type Server struct {

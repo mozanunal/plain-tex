@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
-	"github.com/mozanunal/plain-tex/internal/gitclient"
+	"github.com/mozanunal/poly-txt/internal/gitclient"
 )
 
 type projectGitConfigRecord struct {
@@ -53,13 +53,13 @@ func (s *Server) handleGenerateUserGitKey(w http.ResponseWriter, r *http.Request
 
 	publicKey, privateKey, fingerprint, err := gitclient.GenerateUserSSHKeyPair(user.Email)
 	if err != nil {
-		redirectWithMessage(w, r, "/", "", "Failed to generate SSH key")
+		redirectWithMessage(w, r, "/settings", "", "Failed to generate SSH key")
 		return
 	}
 
 	encryptedPrivateKey, err := gitclient.EncryptSecret(s.jwtSecret, privateKey)
 	if err != nil {
-		redirectWithMessage(w, r, "/", "", "Failed to store SSH key")
+		redirectWithMessage(w, r, "/settings", "", "Failed to store SSH key")
 		return
 	}
 
@@ -69,22 +69,22 @@ func (s *Server) handleGenerateUserGitKey(w http.ResponseWriter, r *http.Request
 		PrivateKeyEncrypted: encryptedPrivateKey,
 		Fingerprint:         fingerprint,
 	}); err != nil {
-		redirectWithMessage(w, r, "/", "", "Failed to save SSH key")
+		redirectWithMessage(w, r, "/settings", "", "Failed to save SSH key")
 		return
 	}
 
-	redirectWithMessage(w, r, "/", "SSH key generated", "")
+	redirectWithMessage(w, r, "/settings", "SSH key generated", "")
 }
 
 func (s *Server) handleDeleteUserGitKey(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r.Context())
 
 	if _, err := s.db.Exec("DELETE FROM user_git_keys WHERE user_id = ?", user.ID); err != nil {
-		redirectWithMessage(w, r, "/", "", "Failed to delete SSH key")
+		redirectWithMessage(w, r, "/settings", "", "Failed to delete SSH key")
 		return
 	}
 
-	redirectWithMessage(w, r, "/", "SSH key deleted", "")
+	redirectWithMessage(w, r, "/settings", "SSH key deleted", "")
 }
 
 func (s *Server) handleCloneProject(w http.ResponseWriter, r *http.Request) {

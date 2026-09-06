@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-const managedExcludeMarker = "# plain-tex managed excludes"
+const managedExcludeMarker = "# poly-txt managed excludes"
 
 var managedArtifactExcludePatterns = []string{
 	"*.pdf",
@@ -325,11 +325,11 @@ func (c *Client) Push(ctx context.Context, opts CommitOptions) (PushResult, erro
 	} else if dirty {
 		authorName := strings.TrimSpace(opts.AuthorName)
 		if authorName == "" {
-			authorName = "plain-tex"
+			authorName = "poly-txt"
 		}
 		authorEmail := strings.TrimSpace(opts.AuthorEmail)
 		if authorEmail == "" {
-			authorEmail = "plain-tex@local"
+			authorEmail = "poly-txt@local"
 		}
 		commitMessage := strings.TrimSpace(opts.CommitMessage)
 		if commitMessage == "" {
@@ -514,7 +514,7 @@ func (c *Client) run(ctx context.Context, repoDir string, auth Auth, extraEnv []
 	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
 	keyPath := ""
 	if privateKey := strings.TrimSpace(auth.SSHPrivateKey); privateKey != "" {
-		tempDir, err := os.MkdirTemp("", "plain-tex-git-key-*")
+		tempDir, err := os.MkdirTemp("", "poly-txt-git-key-*")
 		if err != nil {
 			return "", err
 		}

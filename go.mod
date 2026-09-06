@@ -1,4 +1,4 @@
-module github.com/mozanunal/plain-tex
+module github.com/mozanunal/poly-txt
 
 go 1.22
 

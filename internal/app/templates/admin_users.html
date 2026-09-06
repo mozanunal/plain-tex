@@ -85,6 +85,7 @@
                 <th class="py-3 px-6 font-medium">User</th>
                 <th class="py-3 px-6 font-medium">Email</th>
                 <th class="py-3 px-6 font-medium">Role</th>
+                <th class="py-3 px-6 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -109,6 +110,36 @@
                   <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">user</span>
                   {{end}}
                 </td>
+                <td class="py-3 px-6">
+                  <form
+                    method="POST"
+                    action="/admin/users/{{.ID}}/reset-password"
+                    class="flex items-center justify-end gap-2"
+                    onsubmit="return confirm('Reset password for {{.Email}}?')"
+                  >
+                    <input
+                      type="password"
+                      name="password"
+                      placeholder="New password"
+                      minlength="6"
+                      required
+                      class="w-40 px-2 py-1 border border-gray-300 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                    <button
+                      type="button"
+                      onclick="polyGeneratePassword(this)"
+                      class="whitespace-nowrap rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 transition"
+                    >
+                      Generate
+                    </button>
+                    <button
+                      type="submit"
+                      class="whitespace-nowrap rounded-md bg-gray-900 px-3 py-1 text-xs font-medium text-white hover:bg-gray-800 transition"
+                    >
+                      Reset
+                    </button>
+                  </form>
+                </td>
               </tr>
               {{end}}
             </tbody>
@@ -119,5 +150,23 @@
         {{end}}
       </section>
     </main>
+
+    <script>
+      function polyGeneratePassword(btn) {
+        var chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+        var length = 16;
+        var values = new Uint32Array(length);
+        crypto.getRandomValues(values);
+        var password = "";
+        for (var i = 0; i < length; i++) {
+          password += chars[values[i] % chars.length];
+        }
+        var input = btn.closest("form").querySelector('input[name="password"]');
+        input.type = "text";
+        input.value = password;
+        input.focus();
+        input.select();
+      }
+    </script>
   </body>
 </html>

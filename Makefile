@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 
 BIN_DIR := bin
-BINARY := $(BIN_DIR)/plain-tex
+BINARY := $(BIN_DIR)/poly-txt
 CSS_INPUT := internal/app/static/input.css
 CSS_OUTPUT := internal/app/static/style.css
 

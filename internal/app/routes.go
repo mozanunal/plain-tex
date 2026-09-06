@@ -27,6 +27,9 @@ func (s *Server) setupRoutes() http.Handler {
 		r.Use(s.authMiddleware)
 
 		r.Get("/", s.handleProjectsPage)
+		r.Get("/settings", s.handleSettingsPage)
+		r.Post("/settings/profile", s.handleUpdateProfile)
+		r.Post("/settings/password", s.handleChangePassword)
 		r.Get("/admin/users", s.handleAdminUsersPage)
 		r.Post("/projects", s.handleCreateProject)
 		r.Post("/projects/clone", s.handleCloneProject)
@@ -36,6 +39,7 @@ func (s *Server) setupRoutes() http.Handler {
 		r.Post("/projects/{id}/members", s.handleAddProjectMember)
 		r.Post("/projects/{id}/members/{userID}/remove", s.handleRemoveProjectMember)
 		r.Post("/admin/users", s.handleAdminCreateUser)
+		r.Post("/admin/users/{userID}/reset-password", s.handleAdminResetPassword)
 
 		r.Get("/editor/{id}", s.handleEditorPage)
 		r.Post("/compile/{id}", s.handleCompile)

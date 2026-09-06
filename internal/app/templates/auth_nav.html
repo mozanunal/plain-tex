@@ -2,12 +2,19 @@
 <nav class="bg-white border-b border-gray-200">
   <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
     <div class="flex items-center gap-6">
-      <a href="/" class="text-lg font-bold text-gray-900 hover:text-gray-700">plain-tex</a>
+      <a href="/" class="flex items-center gap-2 text-lg font-bold text-gray-900 hover:text-gray-700">
+        <img src="/static/icon.svg" alt="" width="28" height="28" class="h-7 w-7">
+        <span>poly-txt</span>
+      </a>
       <div class="hidden sm:flex items-center gap-1 text-sm">
         <a
           href="/"
           class="px-3 py-1.5 rounded-md font-medium {{if eq .ActiveNav "home"}}bg-gray-100 text-gray-900{{else}}text-gray-600 hover:bg-gray-50 hover:text-gray-900{{end}}"
         >Home</a>
+        <a
+          href="/settings"
+          class="px-3 py-1.5 rounded-md font-medium {{if eq .ActiveNav "settings"}}bg-gray-100 text-gray-900{{else}}text-gray-600 hover:bg-gray-50 hover:text-gray-900{{end}}"
+        >Settings</a>
         {{if .User.IsAdmin}}
         <a
           href="/admin/users"

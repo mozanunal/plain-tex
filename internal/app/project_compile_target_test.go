@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
-	dbpkg "github.com/mozanunal/plain-tex/internal/db"
+	dbpkg "github.com/mozanunal/poly-txt/internal/db"
 )
 
 func TestPreferredCompileEntryUsesStoredValue(t *testing.T) {

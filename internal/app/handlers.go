@@ -38,6 +38,7 @@ type PageData struct {
 	RegistrationDisabled bool
 	ActiveNav            string
 	AdminCount           int
+	AccountCreated       string
 }
 
 type Project struct {
@@ -305,6 +306,108 @@ func (s *Server) handleProjectsPage(w http.ResponseWriter, r *http.Request) {
 	s.templates.ExecuteTemplate(w, "projects.html", pageData)
 }
 
+func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	userGitKey, err := s.getUserGitKeySummary(user.ID)
+	if err != nil {
+		http.Error(w, "Failed to load Git key", http.StatusInternalServerError)
+		return
+	}
+
+	var created string
+	if err := s.db.QueryRow("SELECT created FROM users WHERE id = ?", user.ID).Scan(&created); err != nil {
+		http.Error(w, "Failed to load account", http.StatusInternalServerError)
+		return
+	}
+
+	s.templates.ExecuteTemplate(w, "settings.html", PageData{
+		User:           user,
+		UserGitKey:     userGitKey,
+		AccountCreated: created,
+		ActiveNav:      "settings",
+		Status:         strings.TrimSpace(r.URL.Query().Get("status")),
+		Error:          strings.TrimSpace(r.URL.Query().Get("error")),
+	})
+}
+
+func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
+
+	if email == "" {
+		redirectWithMessage(w, r, "/settings", "", "Email is required")
+		return
+	}
+
+	var exists bool
+	if err := s.db.QueryRow(
+		"SELECT EXISTS(SELECT 1 FROM users WHERE lower(email) = lower(?) AND id <> ?)",
+		email, user.ID,
+	).Scan(&exists); err != nil {
+		http.Error(w, "Failed to update profile", http.StatusInternalServerError)
+		return
+	}
+	if exists {
+		redirectWithMessage(w, r, "/settings", "", "A user with this email already exists")
+		return
+	}
+
+	if _, err := s.db.Exec(
+		"UPDATE users SET name = ?, email = ?, updated = datetime('now') WHERE id = ?",
+		name, email, user.ID,
+	); err != nil {
+		http.Error(w, "Failed to update profile", http.StatusInternalServerError)
+		return
+	}
+
+	redirectWithMessage(w, r, "/settings", "Profile updated", "")
+}
+
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+
+	currentPassword := r.FormValue("current_password")
+	newPassword := r.FormValue("new_password")
+	confirmPassword := r.FormValue("confirm_password")
+
+	if newPassword != confirmPassword {
+		redirectWithMessage(w, r, "/settings", "", "New passwords do not match")
+		return
+	}
+	if len(newPassword) < 6 {
+		redirectWithMessage(w, r, "/settings", "", "New password must be at least 6 characters")
+		return
+	}
+
+	var hash string
+	if err := s.db.QueryRow("SELECT password_hash FROM users WHERE id = ?", user.ID).Scan(&hash); err != nil {
+		http.Error(w, "Failed to change password", http.StatusInternalServerError)
+		return
+	}
+	if !checkPassword(currentPassword, hash) {
+		redirectWithMessage(w, r, "/settings", "", "Current password is incorrect")
+		return
+	}
+
+	newHash, err := hashPassword(newPassword)
+	if err != nil {
+		http.Error(w, "Failed to change password", http.StatusInternalServerError)
+		return
+	}
+	if _, err := s.db.Exec(
+		"UPDATE users SET password_hash = ?, updated = datetime('now') WHERE id = ?",
+		newHash, user.ID,
+	); err != nil {
+		http.Error(w, "Failed to change password", http.StatusInternalServerError)
+		return
+	}
+
+	redirectWithMessage(w, r, "/settings", "Password changed", "")
+}
+
 func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r.Context())
 	if user == nil || !user.IsAdmin {
@@ -439,6 +542,49 @@ func (s *Server) handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	redirectWithMessage(w, r, "/admin/users", "User created", "")
+}
+
+func (s *Server) handleAdminResetPassword(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r.Context())
+	if user == nil || !user.IsAdmin {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	targetID := strings.TrimSpace(chi.URLParam(r, "userID"))
+	newPassword := r.FormValue("password")
+
+	if len(newPassword) < 6 {
+		redirectWithMessage(w, r, "/admin/users", "", "Password must be at least 6 characters")
+		return
+	}
+
+	var email string
+	err := s.db.QueryRow("SELECT email FROM users WHERE id = ?", targetID).Scan(&email)
+	if err == sql.ErrNoRows {
+		redirectWithMessage(w, r, "/admin/users", "", "User not found")
+		return
+	}
+	if err != nil {
+		http.Error(w, "Failed to reset password", http.StatusInternalServerError)
+		return
+	}
+
+	hash, err := hashPassword(newPassword)
+	if err != nil {
+		http.Error(w, "Failed to reset password", http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := s.db.Exec(
+		"UPDATE users SET password_hash = ?, updated = datetime('now') WHERE id = ?",
+		hash, targetID,
+	); err != nil {
+		http.Error(w, "Failed to reset password", http.StatusInternalServerError)
+		return
+	}
+
+	redirectWithMessage(w, r, "/admin/users", "Password reset for "+email, "")
 }
 
 func (s *Server) handleAddProjectMember(w http.ResponseWriter, r *http.Request) {
