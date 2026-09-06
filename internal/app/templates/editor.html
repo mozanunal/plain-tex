@@ -337,13 +337,10 @@
                 <div id="sidebar-panel-settings" class="hidden h-full bg-gray-800 text-gray-100 flex flex-col">
                     <div class="p-3 space-y-4 border-b border-gray-700">
                         <h3 class="text-sm font-semibold text-gray-100">Settings</h3>
-                        <div class="space-y-2">
-                            <label for="compile-target" class="text-xs text-gray-300">Entry file</label>
-                            <select id="compile-target"
-                                class="w-full rounded border border-gray-600 bg-gray-900 py-1.5 px-2 text-sm text-gray-100 focus:border-blue-500 focus:outline-none">
-                                <option value="main.tex">main.tex</option>
-                            </select>
-                            <p class="text-[11px] text-gray-400">Select the main file to compile.</p>
+                        <div class="space-y-1">
+                            <p class="text-xs text-gray-300">Entry file</p>
+                            <p id="settings-entry-display" class="text-sm text-amber-300 font-mono truncate">-</p>
+                            <p class="text-[11px] text-gray-400">Set this from the file browser with the ◇ button.</p>
                         </div>
                     </div>
                     <div class="flex-1 overflow-auto p-3 space-y-3">
@@ -455,10 +452,10 @@
     const canWrite = {{if .CanWrite}}true{{else}}false{{end}};
     const canComment = {{if .CanComment}}true{{else}}false{{end}};
     const canManageMembers = {{if .CanManageMembers}}true{{else}}false{{end}};
-    const initialStatusMessage = {{printf "%q" .Status}};
-    const initialErrorMessage = {{printf "%q" .Error}};
+    const initialStatusMessage = {{.Status}};
+    const initialErrorMessage = {{.Error}};
     const initialContent = {{.Content}};
-    const initialCompileTarget = {{printf "%q" .CompileTarget}};
+    const initialCompileTarget = {{.CompileTarget}};
     const MIN_PDF_ZOOM = 0.4;
     const MAX_PDF_ZOOM = 3;
     const MAX_COMMENT_BODY_LENGTH = 2000;
@@ -940,6 +937,32 @@
         }
         row.appendChild(label);
 
+        if (!node.isDir && isCompilableFile(node.path)) {
+            const isEntry = node.path === compileTarget;
+            const entryBtn = document.createElement('button');
+            entryBtn.type = 'button';
+
+            if (isEntry) {
+                // Always visible, so the entry point is identifiable at a glance.
+                entryBtn.className = 'text-amber-400 text-base p-0 cursor-default';
+                entryBtn.textContent = '◆';
+                entryBtn.title = 'Compile entry point';
+                entryBtn.disabled = true;
+            } else if (canWrite) {
+                entryBtn.className = 'delete-btn text-gray-400 hover:text-amber-400 text-base p-0';
+                entryBtn.textContent = '◇';
+                entryBtn.title = `Set ${node.name} as the compile entry point`;
+                entryBtn.onclick = (event) => {
+                    event.stopPropagation();
+                    void setCompileEntry(node.path);
+                };
+            }
+
+            if (isEntry || canWrite) {
+                row.appendChild(entryBtn);
+            }
+        }
+
         const copyPathBtn = document.createElement('button');
         copyPathBtn.type = 'button';
         copyPathBtn.className = 'delete-btn text-gray-400 hover:text-gray-200 text-base p-0';
@@ -1035,16 +1058,16 @@
                 body: formData,
             });
             if (!response.ok) {
-                const message = (await response.text()).trim() || 'Failed to save main file selection';
+                const message = (await response.text()).trim() || 'Failed to save the entry point';
                 setStatus(message, true);
                 return false;
             }
             if (showSuccess) {
-                setStatus('Main file saved');
+                setStatus(`Entry point set to ${entry}`);
             }
             return true;
         } catch (_) {
-            setStatus('Failed to save main file selection', true);
+            setStatus('Failed to save the entry point', true);
             return false;
         }
     }
@@ -1087,35 +1110,47 @@
         return firstFile ? firstFile.path : '';
     }
 
-    function updateCompileTargetSelect() {
-        const select = document.getElementById('compile-target');
+    // The entry point lives in the file browser now. This keeps the in-memory
+    // value consistent with what is actually on disk, and clears the stored
+    // value when the last compilable file disappears.
+    function refreshCompileTarget() {
         const candidates = listCompileTargets();
-        select.innerHTML = '';
 
         if (!candidates.length) {
             const previousTarget = compileTarget;
             compileTarget = '';
-            select.disabled = true;
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'No .tex/.typ/.md files';
-            select.appendChild(option);
             if (previousTarget) {
                 void persistCompileTargetSelection('', false);
             }
+            updateEntryDisplay();
             return;
         }
 
         compileTarget = pickCompileTarget(candidates);
-        candidates.forEach((candidate) => {
-            const option = document.createElement('option');
-            option.value = candidate;
-            option.textContent = candidate;
-            select.appendChild(option);
-        });
+        updateEntryDisplay();
+    }
 
-        select.disabled = !canWrite;
-        select.value = compileTarget;
+    function updateEntryDisplay() {
+        const display = document.getElementById('settings-entry-display');
+        if (display) {
+            display.textContent = compileTarget || 'No .tex/.typ/.md files';
+        }
+    }
+
+    // Persists to the project row so the choice survives a reload.
+    async function setCompileEntry(path) {
+        if (!canWrite || path === compileTarget) return;
+
+        const previousTarget = compileTarget;
+        compileTarget = path;
+        renderFileList(fileList);
+        updateEntryDisplay();
+
+        if (!await persistCompileTargetSelection(path, true)) {
+            compileTarget = previousTarget;
+            renderFileList(fileList);
+            updateEntryDisplay();
+        }
     }
 
     async function loadFileList() {
@@ -1132,7 +1167,7 @@
                 filesByPath[file.path] = file;
             });
 
-            updateCompileTargetSelect();
+            refreshCompileTarget();
 
             const currentFileEntry = filesByPath[currentFile];
             if (currentFileEntry && !currentFileEntry.isDir) {
@@ -2036,10 +2071,8 @@
                 updateCompileStat(compileMs);
                 const pdfData = await response.arrayBuffer();
                 compileTarget = responseEntry;
-                const compileTargetSelect = document.getElementById('compile-target');
-                if (compileTargetSelect && Array.from(compileTargetSelect.options).some(option => option.value === compileTarget)) {
-                    compileTargetSelect.value = compileTarget;
-                }
+                updateEntryDisplay();
+                renderFileList(fileList);
                 const loaded = await ensureTextFileCached(compileTarget);
                 if (!loaded) {
                     fileContents[compileTarget] = '';
@@ -2417,8 +2450,12 @@
 
         let html = '';
         for (const entry of names) {
-            const code = entry.substring(0, 2).trim() || '?';
-            const name = entry.length > 3 ? entry.substring(3) : entry.substring(2).trim();
+            // Porcelain format is exactly two status columns, a space, then the
+            // path. The columns may be blank, so never trim before slicing or
+            // the filename shifts.
+            const parsed = /^(..) (.*)$/.exec(entry);
+            const code = (parsed ? parsed[1] : entry.slice(0, 2)).trim() || '?';
+            const name = parsed ? parsed[2] : entry.slice(2).trim();
             const colorClass = statusColors[code.charAt(0)] || statusColors[code.charAt(1)] || 'text-gray-400';
             html += `<div class="flex items-center gap-2 text-xs">
                 <span class="${colorClass} font-mono font-bold w-4 shrink-0">${escapeHTML(code)}</span>
@@ -2889,7 +2926,7 @@
             return;
         }
 
-        ['new-file-btn', 'new-folder-btn', 'upload-btn', 'save-btn', 'compile-target', 'compile-btn', 'confirm-new-file']
+        ['new-file-btn', 'new-folder-btn', 'upload-btn', 'save-btn', 'compile-btn', 'confirm-new-file']
             .forEach((id) => {
                 const element = document.getElementById(id);
                 if (!element) {
@@ -3421,10 +3458,6 @@
     document.getElementById('view-editor-btn').addEventListener('click', () => applyWorkspaceView(WORKSPACE_VIEW_EDITOR));
     document.getElementById('view-pdf-btn').addEventListener('click', () => applyWorkspaceView(WORKSPACE_VIEW_PDF));
     document.getElementById('view-split-btn').addEventListener('click', () => applyWorkspaceView(WORKSPACE_VIEW_SPLIT));
-    document.getElementById('compile-target').addEventListener('change', async (event) => {
-        compileTarget = event.target.value;
-        await persistCompileTargetSelection(compileTarget, true);
-    });
     document.getElementById('compile-btn').addEventListener('click', compile);
     document.getElementById('sidebar-files-btn').addEventListener('click', () => selectSidebarPanel('files'));
     document.getElementById('sidebar-comments-btn').addEventListener('click', () => selectSidebarPanel('comments'));

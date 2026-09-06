@@ -522,13 +522,13 @@ func (c *Client) ensureLocalExcludes(repoDir string) error {
 }
 
 func (c *Client) statusLines(ctx context.Context, repoDir string) ([]string, error) {
-	porcelain, err := c.output(ctx, repoDir, Auth{}, "status", "--porcelain")
+	porcelain, err := c.run(ctx, repoDir, Auth{}, nil, "status", "--porcelain")
 	if err != nil {
 		return nil, err
 	}
 
 	lines := make([]string, 0)
-	for _, line := range strings.Split(strings.TrimSpace(porcelain), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(porcelain, "\r\n"), "\n") {
 		line = strings.TrimRight(line, "\r")
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -630,13 +630,16 @@ func (c *Client) run(ctx context.Context, repoDir string, auth Auth, extraEnv []
 	cmd.Env = env
 
 	output, err := cmd.CombinedOutput()
-	trimmedOutput := strings.TrimSpace(string(output))
 	if err != nil {
 		return "", &CommandError{
 			Args:   append([]string(nil), args...),
-			Output: trimmedOutput,
+			Output: strings.TrimSpace(string(output)),
 		}
 	}
 
-	return trimmedOutput, nil
+	// Returned untrimmed on purpose: "git status --porcelain" encodes the staged
+	// and unstaged state in two leading columns, so trimming here would eat the
+	// leading space of the first entry and shift its filename. Callers that want
+	// a tidy single value use output(), which trims.
+	return string(output), nil
 }

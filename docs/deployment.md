@@ -73,6 +73,7 @@ docker build -t poly-txt:latest .
 | --- | --- | --- |
 | `TYPST_VERSION` | `0.15.1` | Typst release to download. Must be 0.14.0 or newer, because Markdown rendering uses the `cmarker` package which requires it. |
 | `TARGETARCH` | set by Docker | Selects the `x86_64` or `aarch64` binaries. Both `amd64` and `arm64` are supported. |
+| `INSTALL_MS_FONTS` | `true` | Installs the Microsoft core fonts so `\setmainfont{Arial}` works. Set to `false` to build without them. See [Fonts](#fonts). |
 
 To pin a different Typst version:
 
@@ -190,6 +191,81 @@ Two version requirements matter:
 If your server has no outbound access, the first `.tex` compile will fail. In
 that case, warm the cache on a machine that does have access and copy the
 `/data/cache` directory over, or restrict usage to Typst and Markdown.
+
+## Fonts
+
+Tectonic downloads TeX packages on demand, but it never downloads **fonts**. Any
+document that selects a font by name, which means anything using `fontspec` with
+`\setmainfont`, needs that font installed in the container.
+
+### Why a fontconfig alias is not enough
+
+XeTeX, which is the engine Tectonic runs, resolves `\setmainfont{Arial}` by
+**enumerating the installed font families** and looking the name up in that list.
+It does not ask fontconfig to find a best match. So a fontconfig alias mapping
+Arial onto Liberation Sans is not sufficient: `fc-match Arial` will report
+Liberation Sans while the compile still fails with
+
+```
+Package fontspec Error: The font "Arial" cannot be found.
+```
+
+A font whose **real family name** is `Arial` has to exist.
+
+### What the image installs
+
+- `fontconfig`, plus the Liberation and DejaVu families.
+- The Microsoft core fonts (Arial, Times New Roman, Courier New, and friends)
+  via `msttcorefonts-installer`, which is what makes `\setmainfont{Arial}` work.
+- Fallback fontconfig aliases mapping the Microsoft names onto their
+  metric-compatible Liberation equivalents, for tools that *do* use fontconfig
+  matching. Metric-compatible means identical character widths, so line breaks
+  and page counts are preserved.
+
+The build **fails** if Arial is missing at the end, so a font problem surfaces at
+build time instead of during someone's first compile.
+
+### Building without the Microsoft fonts
+
+`update-ms-fonts` downloads the fonts at build time and Microsoft's licence
+restricts redistribution, so do not push the resulting image to a public
+registry. To build without them:
+
+```bash
+docker build --build-arg INSTALL_MS_FONTS=false -t poly-txt:latest .
+```
+
+Documents must then name a font that exists, for example
+`\setmainfont{Liberation Sans}`. Because Liberation is metric-compatible with
+Arial, the resulting layout and page count are the same.
+
+### Using fonts from the host instead
+
+You can mount a font directory, which keeps licensing your own concern:
+
+```bash
+docker run -v /path/to/your/fonts:/usr/share/fonts/custom:ro ... poly-txt:latest
+```
+
+Run `docker exec poly-txt fc-cache -f` if a newly added font is not picked up.
+
+### Checking what is available
+
+```bash
+docker exec poly-txt fc-list : family | tr ',' '\n' | sort -u | head -30
+docker exec poly-txt fc-list : family | tr ',' '\n' | grep -x Arial
+```
+
+### Harmless warnings
+
+Compiles print one line per discovered font:
+
+```
+warning: accessing absolute path `/usr/share/fonts/...`; build may not be reproducible in other environments
+```
+
+That is Tectonic noting it read a file from outside its own bundle. It is
+expected whenever system fonts are used and can be ignored.
 
 ## Running behind a reverse proxy with TLS
 
@@ -368,3 +444,4 @@ sudo systemctl enable --now poly-txt
 | `your saved SSH key could not be decrypted` | `JWT_SECRET` changed since the key was generated. Restore the old secret, or regenerate the key in Settings and add the new public key to your Git host. |
 | `package requires typst 0.14.0 or newer` | The image has an older Typst. Rebuild with `--build-arg TYPST_VERSION=0.15.1` or newer. |
 | `the "V2" Tectonic CLI requires ... the "serialization" Cargo feature` | A tectonic build without V2 support. poly-txt uses the V1 CLI, so make sure you are on a current build of poly-txt. |
+| `Package fontspec Error: The font "X" cannot be found` | No installed family is literally named X. A fontconfig alias will not help, since XeTeX enumerates families. See [Fonts](#fonts). |

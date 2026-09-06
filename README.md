@@ -32,6 +32,9 @@ poly-txt is a self-hosted collaborative editor for LaTeX/Typst projects. It prov
 - `tectonic` installed and available on `PATH` (or set `TECTONIC_BIN`)
 - `typst` 0.14.0 or newer on `PATH` (or set `TYPST_BIN`). Markdown rendering uses
   the `cmarker` Typst package, which requires 0.14.0+.
+- Fonts for any `fontspec` document. `\setmainfont{Arial}` needs Arial (or a
+  metric-compatible substitute such as Liberation Sans) installed on the host.
+  The Docker image handles this for you.
 - Optional for CSS targets in `Makefile`: Node.js + `npx`
 
 ## Quick Start

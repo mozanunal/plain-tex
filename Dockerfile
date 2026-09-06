@@ -38,8 +38,52 @@ FROM alpine:3.20
 
 # tectonic: LaTeX compiler (Alpine community). git + openssh-client: Git
 # integration. ca-certificates: TLS for Git over HTTPS and the Tectonic bundle.
-RUN apk add --no-cache ca-certificates git openssh-client tectonic \
+# fontconfig + fonts: fontspec/XeTeX resolves fonts by system name, and Tectonic
+# downloads TeX packages but never fonts, so without these any document using
+# \setmainfont fails with "The font ... cannot be found".
+RUN apk add --no-cache ca-certificates git openssh-client tectonic fontconfig \
+    && (apk add --no-cache font-liberation || apk add --no-cache ttf-liberation) \
+    && (apk add --no-cache font-dejavu || apk add --no-cache ttf-dejavu) \
     && adduser -D -h /home/poly poly
+
+# Microsoft core fonts, which is what \setmainfont{Arial} actually needs.
+# XeTeX resolves font names by enumerating the installed families rather than by
+# asking fontconfig to match, so a fontconfig alias is NOT sufficient: a font
+# whose real family name is "Arial" has to be present. Build with
+# --build-arg INSTALL_MS_FONTS=false to skip this (documents must then name a
+# font that exists, such as "Liberation Sans").
+ARG INSTALL_MS_FONTS=true
+RUN if [ "$INSTALL_MS_FONTS" = "true" ]; then \
+        apk add --no-cache msttcorefonts-installer && update-ms-fonts; \
+    fi
+
+# Fallback aliases for consumers that do honour fontconfig matching (Typst and
+# anything else that asks fontconfig rather than enumerating). Liberation is
+# metric-compatible with the Microsoft fonts, so widths, line breaks, and total
+# page count are preserved.
+RUN printf '%s\n' \
+    '<?xml version="1.0"?>' \
+    '<!DOCTYPE fontconfig SYSTEM "fonts.dtd">' \
+    '<fontconfig>' \
+    '  <alias binding="same"><family>Arial</family>' \
+    '    <accept><family>Liberation Sans</family></accept></alias>' \
+    '  <alias binding="same"><family>Helvetica</family>' \
+    '    <accept><family>Liberation Sans</family></accept></alias>' \
+    '  <alias binding="same"><family>Times New Roman</family>' \
+    '    <accept><family>Liberation Serif</family></accept></alias>' \
+    '  <alias binding="same"><family>Courier New</family>' \
+    '    <accept><family>Liberation Mono</family></accept></alias>' \
+    '</fontconfig>' > /etc/fonts/local.conf \
+    && fc-cache -f
+
+# Fail the build here rather than letting the first .tex compile discover a
+# missing font at runtime. XeTeX needs a real family named "Arial".
+RUN if [ "$INSTALL_MS_FONTS" = "true" ]; then \
+        fc-list : family | tr ',' '\n' | grep -qx 'Arial' \
+        || { echo "ERROR: Arial is not installed, so \\setmainfont{Arial} would fail at runtime." >&2; \
+             echo "Rebuild with --build-arg INSTALL_MS_FONTS=false to accept Liberation substitutes." >&2; \
+             exit 1; }; \
+    fi
 
 COPY --from=build /out/poly-txt /usr/local/bin/poly-txt
 COPY --from=typst /usr/local/bin/typst /usr/local/bin/typst
