@@ -33,15 +33,36 @@ RUN set -eux; \
     install -m 0755 /tmp/typst/typst /usr/local/bin/typst; \
     /usr/local/bin/typst --version
 
+##########  Fetch the Tectonic engine (static musl binary)  ##########
+FROM alpine:3.20 AS tectonic
+ARG TARGETARCH
+# Alpine's package lags badly: 3.20 and even 3.22 still ship 0.15.0, which needs
+# 7 TeX passes on documents that 0.17.0 converges in 4. Pull it from upstream so
+# the container matches a current local install.
+ARG TECTONIC_VERSION=0.17.0
+RUN apk add --no-cache curl tar
+RUN set -eux; \
+    case "$TARGETARCH" in \
+      amd64) arch="x86_64" ;; \
+      arm64) arch="aarch64" ;; \
+      *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    url="https://github.com/tectonic-typesetting/tectonic/releases/download/tectonic%40${TECTONIC_VERSION}/tectonic-${TECTONIC_VERSION}-${arch}-unknown-linux-musl.tar.gz"; \
+    curl -fsSL "$url" -o /tmp/tectonic.tar.gz; \
+    mkdir -p /tmp/tectonic; \
+    tar -xzf /tmp/tectonic.tar.gz -C /tmp/tectonic; \
+    install -m 0755 "$(find /tmp/tectonic -type f -name tectonic | head -1)" /usr/local/bin/tectonic; \
+    /usr/local/bin/tectonic --version
+
 ##########  Runtime image  ##########
 FROM alpine:3.20
 
-# tectonic: LaTeX compiler (Alpine community). git + openssh-client: Git
+# git + openssh-client: Git
 # integration. ca-certificates: TLS for Git over HTTPS and the Tectonic bundle.
 # fontconfig + fonts: fontspec/XeTeX resolves fonts by system name, and Tectonic
 # downloads TeX packages but never fonts, so without these any document using
 # \setmainfont fails with "The font ... cannot be found".
-RUN apk add --no-cache ca-certificates git openssh-client tectonic fontconfig \
+RUN apk add --no-cache ca-certificates git openssh-client fontconfig \
     && (apk add --no-cache font-liberation || apk add --no-cache ttf-liberation) \
     && (apk add --no-cache font-dejavu || apk add --no-cache ttf-dejavu) \
     && adduser -D -h /home/poly poly
@@ -86,15 +107,20 @@ RUN if [ "$INSTALL_MS_FONTS" = "true" ]; then \
     fi
 
 COPY --from=build /out/poly-txt /usr/local/bin/poly-txt
+COPY --from=tectonic /usr/local/bin/tectonic /usr/local/bin/tectonic
 COPY --from=typst /usr/local/bin/typst /usr/local/bin/typst
 
 ENV PORT=3000 \
     DATA_DIR=/data \
     HOME=/home/poly \
-    XDG_CACHE_HOME=/data/cache
+    XDG_CACHE_HOME=/data/cache \
+    TECTONIC_CACHE_DIR=/data/cache
 # JWT_SECRET has no default here on purpose. Set it at runtime.
 
-RUN mkdir -p /data && chown -R poly:poly /data /home/poly
+# Pre-create the cache directory so it is seeded into a fresh volume with the
+# right owner. If Tectonic cannot write here it silently re-downloads its whole
+# support bundle on every single compile, which is the usual cause of slowness.
+RUN mkdir -p /data/cache && chown -R poly:poly /data /home/poly
 
 USER poly
 WORKDIR /home/poly
