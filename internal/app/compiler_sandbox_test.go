@@ -18,7 +18,8 @@ func TestCompileUsesMinimalEnvironment(t *testing.T) {
 
 	writeExecutable(t, tectonicPath, `#!/bin/sh
 env > `+envDump+`
-printf 'pdf' > "${1%.*}.pdf"
+mkdir -p .polytex-build
+printf 'pdf' > .polytex-build/main.pdf
 `)
 
 	t.Setenv("JWT_SECRET", "top-secret-value")

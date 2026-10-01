@@ -24,7 +24,8 @@ func TestPushCloneAndPullWithLocalRemote(t *testing.T) {
 		t.Fatalf("failed to create work tree: %v", err)
 	}
 	writeFile(t, filepath.Join(workDir, "main.tex"), "\\documentclass{article}\n\\begin{document}\ninitial\n\\end{document}\n")
-	writeFile(t, filepath.Join(workDir, "main.pdf"), "compiled artifact")
+	writeFile(t, filepath.Join(workDir, ".polytex-build", "main.pdf"), "compiled artifact")
+	writeFile(t, filepath.Join(workDir, "figures", "plot.pdf"), "a committed figure")
 
 	pushResult, err := client.Push(ctx, CommitOptions{
 		SyncOptions: SyncOptions{
@@ -52,8 +53,11 @@ func TestPushCloneAndPullWithLocalRemote(t *testing.T) {
 		t.Fatalf("Clone returned error: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(cloneDir, "main.pdf")); !os.IsNotExist(err) {
-		t.Fatalf("expected compiled artifact to stay out of the repository, stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(cloneDir, ".polytex-build", "main.pdf")); !os.IsNotExist(err) {
+		t.Fatalf("expected compiled build output to stay out of the repository, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cloneDir, "figures", "plot.pdf")); err != nil {
+		t.Fatalf("expected a committed figure PDF to be tracked, stat err=%v", err)
 	}
 
 	writeFile(t, filepath.Join(cloneDir, "main.tex"), "\\documentclass{article}\n\\begin{document}\nremote update\n\\end{document}\n")
@@ -136,10 +140,12 @@ func TestIsManagedArtifactPath(t *testing.T) {
 		path string
 		want bool
 	}{
-		{path: "main.pdf", want: true},
-		{path: "chapters/output.pdf", want: true},
-		{path: "main.log", want: true},
-		{path: "build/main.synctex.gz", want: true},
+		{path: ".polytex-build/main.pdf", want: true},
+		{path: ".polytex-build/main.log", want: true},
+		{path: ".polytex-build", want: true},
+		{path: "main.pdf", want: false},
+		{path: "chapters/output.pdf", want: false},
+		{path: "figures/plot.pdf", want: false},
 		{path: "images/figure.png", want: false},
 		{path: "docs/paper.typ", want: false},
 	}

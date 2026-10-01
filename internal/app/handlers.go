@@ -3,7 +3,9 @@ package app
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -667,33 +669,42 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.db.Exec("DELETE FROM project_members WHERE project_id = ?", access.ProjectID)
+	tx, err := s.db.Begin()
 	if err != nil {
 		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
 		return
 	}
-	if _, err := s.db.Exec("DELETE FROM project_git_configs WHERE project_id = ?", access.ProjectID); err != nil {
-		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
-		return
+	defer tx.Rollback()
+
+	for _, stmt := range []string{
+		"DELETE FROM project_members WHERE project_id = ?",
+		"DELETE FROM project_git_configs WHERE project_id = ?",
+		"DELETE FROM comments WHERE project_id = ?",
+	} {
+		if _, err := tx.Exec(stmt, access.ProjectID); err != nil {
+			http.Error(w, "Failed to delete project", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	result, err := s.db.Exec(
-		"DELETE FROM projects WHERE id = ?",
-		access.ProjectID,
-	)
+	result, err := tx.Exec("DELETE FROM projects WHERE id = ?", access.ProjectID)
 	if err != nil {
 		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
 		return
 	}
-
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
 		http.Error(w, "Project not found", http.StatusNotFound)
 		return
 	}
 
-	s.db.Exec("DELETE FROM comments WHERE project_id = ?", access.ProjectID)
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
+		return
+	}
 
+	// Files are removed only after the database rows are committed, so a failure
+	// never leaves a project row pointing at a deleted directory.
 	projectDir := filepath.Join(s.projectsDir, access.ProjectID)
 	os.RemoveAll(projectDir)
 
@@ -942,7 +953,7 @@ func (s *Server) handleGetPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := access.ProjectID
 
-	pdfPath := filepath.Join(s.projectsDir, projectID, "main.pdf")
+	pdfPath := filepath.Join(s.projectsDir, projectID, filepath.FromSlash(CompiledPDFRelPath))
 	pdf, err := os.ReadFile(pdfPath)
 	if err != nil {
 		http.Error(w, "PDF not found", http.StatusNotFound)
@@ -1003,7 +1014,7 @@ func (s *Server) handleDownloadPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := access.ProjectID
 
-	pdfPath := filepath.Join(s.projectsDir, projectID, "main.pdf")
+	pdfPath := filepath.Join(s.projectsDir, projectID, filepath.FromSlash(CompiledPDFRelPath))
 	pdf, err := os.ReadFile(pdfPath)
 	if err != nil {
 		http.Error(w, "PDF not found. Compile first.", http.StatusNotFound)
@@ -2062,8 +2073,17 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setUntrustedFileHeaders(w, path.Base(filename))
+	w.Header().Set("ETag", contentETag(content))
 	w.Header().Set("Content-Type", detectContentType(filename, content))
 	w.Write(content)
+}
+
+// contentETag is a strong validator derived from the file bytes. The editor
+// sends the value it last read back on save, so the server can reject a write
+// that would silently clobber someone else's concurrent change.
+func contentETag(content []byte) string {
+	sum := sha256.Sum256(content)
+	return "\"" + hex.EncodeToString(sum[:]) + "\""
 }
 
 // setUntrustedFileHeaders makes the browser treat project files as inert data.
@@ -2104,6 +2124,22 @@ func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optional optimistic concurrency: if the client sends the ETag it last read,
+	// refuse the write when the file changed underneath it so one editor does not
+	// silently overwrite another's save. Clients that send nothing are unaffected.
+	if baseHash := strings.TrimSpace(r.FormValue("baseHash")); baseHash != "" {
+		current, readErr := os.ReadFile(filePath)
+		if readErr != nil {
+			http.Error(w, "Failed to access file", http.StatusInternalServerError)
+			return
+		}
+		if contentETag(current) != baseHash {
+			w.Header().Set("ETag", contentETag(current))
+			http.Error(w, "This file changed since you opened it. Reload to see the latest version before saving.", http.StatusConflict)
+			return
+		}
+	}
+
 	content := r.FormValue("content")
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
@@ -2111,6 +2147,7 @@ func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.touchProject(projectID)
+	w.Header().Set("ETag", contentETag([]byte(content)))
 	w.WriteHeader(http.StatusOK)
 }
 

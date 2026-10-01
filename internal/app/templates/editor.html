@@ -500,6 +500,7 @@
     let gitStatus = { configured: false, repoPresent: false };
 
     fileContents[initialPrimaryFile] = initialContent;
+    const fileHashes = {};
 
     require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
 
@@ -603,6 +604,14 @@
         loadGitStatus(false);
         updateCommentTargetFromEditor(true);
     });
+
+    function saveBody(filename, content) {
+        let body = `content=${encodeURIComponent(content)}`;
+        if (fileHashes[filename]) {
+            body += `&baseHash=${encodeURIComponent(fileHashes[filename])}`;
+        }
+        return body;
+    }
 
     function buildFileURL(filename) {
         const encoded = filename.split('/').map(encodeURIComponent).join('/');
@@ -1254,6 +1263,8 @@
                 return false;
             }
             fileContents[filename] = await response.text();
+            const etag = response.headers.get('ETag');
+            if (etag) { fileHashes[filename] = etag; }
             return true;
         } catch (_) {
             return false;
@@ -1988,14 +1999,18 @@
             const response = await fetch(buildFileURL(currentFile), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `content=${encodeURIComponent(content)}`
+                body: saveBody(currentFile, content)
             });
 
             if (response.ok) {
+                const etag = response.headers.get('ETag');
+                if (etag) { fileHashes[currentFile] = etag; }
                 delete unsavedChanges[currentFile];
                 updateFileList();
                 setStatus('Saved');
                 loadGitStatus(false);
+            } else if (response.status === 409) {
+                setStatus('This file changed on disk since you opened it. Reload it before saving.', true);
             } else {
                 setStatus('Save failed', true);
             }
@@ -2015,12 +2030,18 @@
             const response = await fetch(buildFileURL(filename), {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `content=${encodeURIComponent(content)}`
+                body: saveBody(filename, content)
             });
+            if (response.status === 409) {
+                setStatus(`${filename} changed on disk since you opened it. Reload it before saving.`, true);
+                return false;
+            }
             if (!response.ok) {
                 setStatus(`Failed to save ${filename}`, true);
                 return false;
             }
+            const etag = response.headers.get('ETag');
+            if (etag) { fileHashes[filename] = etag; }
         }
         unsavedChanges = {};
         updateFileList();

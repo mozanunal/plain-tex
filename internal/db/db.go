@@ -3,12 +3,13 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	_ "modernc.org/sqlite"
 )
 
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, err
 	}
@@ -21,6 +22,19 @@ func Open(path string) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// dsn sets the pragmas through the connection string rather than a one-off Exec,
+// so they hold for every connection the pool ever opens:
+//   - foreign_keys(ON): the declared foreign keys are actually enforced.
+//   - journal_mode(WAL): a crash mid-write cannot corrupt the database.
+//   - busy_timeout: a writer waits instead of failing immediately under contention.
+func dsn(path string) string {
+	params := url.Values{}
+	params.Add("_pragma", "foreign_keys(ON)")
+	params.Add("_pragma", "journal_mode(WAL)")
+	params.Add("_pragma", "busy_timeout(5000)")
+	return "file:" + path + "?" + params.Encode()
 }
 
 func migrate(db *sql.DB) error {

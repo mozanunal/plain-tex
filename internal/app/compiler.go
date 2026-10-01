@@ -110,7 +110,15 @@ func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string
 	}
 
 	ext := strings.ToLower(filepath.Ext(entryFile))
-	pdfFile := strings.TrimSuffix(entryFile, filepath.Ext(entryFile)) + ".pdf"
+
+	// Compiled output and intermediates go to a hidden build directory, never
+	// next to the source. That keeps the project tree clean, and it means a
+	// figure a user commits as fig.pdf is no longer mistaken for build output
+	// and excluded from Git.
+	if err := os.MkdirAll(filepath.Join(workDir, buildDirName), 0755); err != nil {
+		return nil, "", err
+	}
+	pdfFile := buildDirName + "/" + "main.pdf"
 
 	var name string
 	var args []string
@@ -121,7 +129,8 @@ func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string
 		// The V1 CLI is used instead of "-X compile" because the V2 CLI is only
 		// available in tectonic builds compiled with the "serialization" feature,
 		// which most distribution packages omit. Both produce identical output.
-		name, args = c.tectonicBin, []string{entryFile}
+		name, args = c.tectonicBin, []string{"--outdir", buildDirName, "--keep-logs", entryFile}
+		pdfFile = buildDirName + "/" + pdfBaseName(entryFile)
 	case ".typ":
 		name, args = c.typstBin, []string{"compile", entryFile, pdfFile}
 	case ".md":
@@ -137,7 +146,6 @@ func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string
 			return nil, "", fmt.Errorf("failed to create markdown wrapper: %w", err)
 		}
 
-		pdfFile = strings.TrimSuffix(entryFile, filepath.Ext(entryFile)) + ".pdf"
 		name, args = c.typstBin, []string{"compile", wrapperName, pdfFile}
 	default:
 		return nil, "", fmt.Errorf("unsupported entry file: %s", entryFile)
@@ -166,11 +174,25 @@ func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string
 		return nil, string(output), readErr
 	}
 
-	if filepath.ToSlash(pdfFile) != "main.pdf" {
-		_ = os.WriteFile(filepath.Join(workDir, "main.pdf"), pdf, 0644)
+	if filepath.ToSlash(pdfFile) != CompiledPDFRelPath {
+		_ = os.WriteFile(filepath.Join(workDir, filepath.FromSlash(CompiledPDFRelPath)), pdf, 0644)
 	}
 
 	return pdf, string(output), nil
+}
+
+// buildDirName is the hidden per-project directory that holds compiled output
+// and intermediates. It starts with a dot, so the file browser and Git exclude
+// it the same way they exclude other dotfiles.
+const buildDirName = ".polytex-build"
+
+// CompiledPDFRelPath is where the latest compiled PDF is always written,
+// relative to the project directory.
+const CompiledPDFRelPath = buildDirName + "/main.pdf"
+
+func pdfBaseName(entryFile string) string {
+	base := filepath.Base(entryFile)
+	return strings.TrimSuffix(base, filepath.Ext(base)) + ".pdf"
 }
 
 // typstStringLiteral renders s as a Typst double-quoted string, escaping the two
