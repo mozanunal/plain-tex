@@ -2,9 +2,8 @@
 bin/
 *.exe
 
-# Data
-data/latex.db
-data/projects/
+# Local dev data: the database, its WAL/SHM side files, and project files
+/data/
 
 # Dependencies
 node_modules/
