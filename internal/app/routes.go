@@ -24,11 +24,22 @@ func requestLogger(next http.Handler) http.Handler {
 	})
 }
 
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers := w.Header()
+		headers.Set("X-Content-Type-Options", "nosniff")
+		headers.Set("X-Frame-Options", "SAMEORIGIN")
+		headers.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) setupRoutes() http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(requestLogger)
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
 
 	staticContent, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))

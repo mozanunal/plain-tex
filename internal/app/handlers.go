@@ -1056,10 +1056,16 @@ func (s *Server) handleDownloadSource(w http.ResponseWriter, r *http.Request) {
 	zipWriter := zip.NewWriter(w)
 	for _, relPath := range filePaths {
 		absPath := filepath.Join(projectDir, filepath.FromSlash(relPath))
+		if ensureResolvesWithinProject(projectDir, absPath) != nil {
+			continue
+		}
 		fileInfo, err := os.Stat(absPath)
 		if err != nil {
 			zipWriter.Close()
 			return
+		}
+		if fileInfo.IsDir() {
+			continue
 		}
 
 		header, err := zip.FileInfoHeader(fileInfo)
@@ -1473,6 +1479,12 @@ func normalizeProjectPath(input string, allowEmpty bool) (string, error) {
 		if part == ".." {
 			return "", errors.New("invalid path")
 		}
+		// The repository metadata is managed by poly-txt alone. Letting users edit
+		// it (for example .git/config) would let them configure commands that git
+		// later runs on the server.
+		if strings.EqualFold(part, ".git") {
+			return "", errors.New("invalid path")
+		}
 		normalizedParts = append(normalizedParts, part)
 	}
 
@@ -1500,7 +1512,38 @@ func isPathWithinProject(projectDir, candidatePath string) bool {
 	return true
 }
 
+var errPathEscapesProject = errors.New("invalid path")
+
+// resolveProjectPath maps a user-supplied relative path to an absolute path inside
+// the project, following symlinks: the file a read or write would actually touch
+// must live inside the project directory.
 func resolveProjectPath(projectDir, input string, allowEmpty bool) (string, string, error) {
+	rel, abs, err := resolveProjectPathLexically(projectDir, input, allowEmpty)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensureResolvesWithinProject(projectDir, abs); err != nil {
+		return "", "", err
+	}
+	return rel, abs, nil
+}
+
+// resolveProjectPathNoFollow is for operations that act on the directory entry
+// itself rather than on what it points to (delete, rename). A symlink that points
+// outside the project can then still be removed, while its parent directories
+// must resolve inside the project.
+func resolveProjectPathNoFollow(projectDir, input string, allowEmpty bool) (string, string, error) {
+	rel, abs, err := resolveProjectPathLexically(projectDir, input, allowEmpty)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensureResolvesWithinProject(projectDir, filepath.Dir(abs)); err != nil {
+		return "", "", err
+	}
+	return rel, abs, nil
+}
+
+func resolveProjectPathLexically(projectDir, input string, allowEmpty bool) (string, string, error) {
 	rel, err := normalizeProjectPath(input, allowEmpty)
 	if err != nil {
 		return "", "", err
@@ -1511,9 +1554,44 @@ func resolveProjectPath(projectDir, input string, allowEmpty bool) (string, stri
 		abs = filepath.Join(projectDir, filepath.FromSlash(rel))
 	}
 	if !isPathWithinProject(projectDir, abs) {
-		return "", "", errors.New("invalid path")
+		return "", "", errPathEscapesProject
 	}
 	return rel, abs, nil
+}
+
+// ensureResolvesWithinProject resolves symlinks along candidatePath, up to its
+// deepest existing ancestor, and rejects the path if that lands outside the
+// project. A dangling symlink is rejected too, since writing through it would
+// create its target wherever it points.
+func ensureResolvesWithinProject(projectDir, candidatePath string) error {
+	realProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	existing := candidatePath
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return nil
+		}
+		existing = parent
+	}
+
+	realPath, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return errPathEscapesProject
+	}
+	if !isPathWithinProject(realProjectDir, realPath) {
+		return errPathEscapesProject
+	}
+	return nil
 }
 
 func hasHiddenSegment(rel string) bool {
@@ -1969,8 +2047,19 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setUntrustedFileHeaders(w, path.Base(filename))
 	w.Header().Set("Content-Type", detectContentType(filename, content))
 	w.Write(content)
+}
+
+// setUntrustedFileHeaders makes the browser treat project files as inert data.
+// They are served from the app's own origin, so an uploaded HTML or SVG file
+// opened directly would otherwise run scripts with the viewer's session. The
+// editor reads files with fetch, which these headers do not affect.
+func setUntrustedFileHeaders(w http.ResponseWriter, filename string) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 }
 
 func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
@@ -2019,13 +2108,13 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	projectID := access.ProjectID
 
 	projectDir := filepath.Join(s.projectsDir, projectID)
-	filename, filePath, err := resolveProjectPath(projectDir, chi.URLParam(r, "*"), false)
+	filename, filePath, err := resolveProjectPathNoFollow(projectDir, chi.URLParam(r, "*"), false)
 	if err != nil {
 		http.Error(w, "Invalid filename", http.StatusBadRequest)
 		return
 	}
 
-	fileInfo, err := os.Stat(filePath)
+	fileInfo, err := os.Lstat(filePath)
 	if os.IsNotExist(err) {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -2059,12 +2148,12 @@ func (s *Server) handleMoveFile(w http.ResponseWriter, r *http.Request) {
 
 	projectDir := filepath.Join(s.projectsDir, projectID)
 
-	sourceRel, sourcePath, err := resolveProjectPath(projectDir, r.FormValue("source"), false)
+	sourceRel, sourcePath, err := resolveProjectPathNoFollow(projectDir, r.FormValue("source"), false)
 	if err != nil {
 		http.Error(w, "Invalid source path", http.StatusBadRequest)
 		return
 	}
-	sourceInfo, err := os.Stat(sourcePath)
+	sourceInfo, err := os.Lstat(sourcePath)
 	if os.IsNotExist(err) {
 		http.Error(w, "Source not found", http.StatusNotFound)
 		return

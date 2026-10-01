@@ -121,7 +121,7 @@ func (c *Client) Clone(ctx context.Context, opts CloneOptions) error {
 	if branch := strings.TrimSpace(opts.Branch); branch != "" {
 		args = append(args, "--branch", branch, "--single-branch")
 	}
-	args = append(args, strings.TrimSpace(opts.RemoteURL), opts.Dir)
+	args = append(args, "--", strings.TrimSpace(opts.RemoteURL), opts.Dir)
 	if _, err := c.run(ctx, "", opts.Auth, nil, args...); err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (c *Client) EnsureRemote(ctx context.Context, repoDir string, remoteURL str
 
 	currentURL, err := c.output(ctx, repoDir, Auth{}, "remote", "get-url", "origin")
 	if err != nil {
-		if _, addErr := c.run(ctx, repoDir, Auth{}, nil, "remote", "add", "origin", remoteURL); addErr != nil {
+		if _, addErr := c.run(ctx, repoDir, Auth{}, nil, "remote", "add", "--", "origin", remoteURL); addErr != nil {
 			return addErr
 		}
 		return nil
@@ -161,7 +161,7 @@ func (c *Client) EnsureRemote(ctx context.Context, repoDir string, remoteURL str
 		return nil
 	}
 
-	_, err = c.run(ctx, repoDir, Auth{}, nil, "remote", "set-url", "origin", remoteURL)
+	_, err = c.run(ctx, repoDir, Auth{}, nil, "remote", "set-url", "--", "origin", remoteURL)
 	return err
 }
 
