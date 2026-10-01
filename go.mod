@@ -9,6 +9,7 @@ require (
 	github.com/landlock-lsm/go-landlock v0.10.1
 	golang.org/x/crypto v0.28.0
 	golang.org/x/sys v0.40.0
+	golang.org/x/time v0.8.0
 	modernc.org/sqlite v1.33.1
 )
 

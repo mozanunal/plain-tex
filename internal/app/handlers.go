@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/zip"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -823,9 +824,32 @@ func (s *Server) handleCompile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serialize against other work on this project (a concurrent compile or a git
+	// operation on the same working tree), then bound total parallelism across
+	// all projects so a burst cannot exhaust the host.
+	unlock := s.projectLocks.Lock(projectID)
+	defer unlock()
+
+	select {
+	case s.compileSem <- struct{}{}:
+		defer func() { <-s.compileSem }()
+	case <-r.Context().Done():
+		http.Error(w, "Request cancelled", http.StatusRequestTimeout)
+		return
+	}
+
+	compileCtx, cancel := context.WithTimeout(r.Context(), compileTimeout)
+	defer cancel()
+
 	compileStartedAt := time.Now()
-	pdf, output, err := s.compiler.Compile(projectDir, entry)
+	pdf, output, err := s.compiler.Compile(compileCtx, projectDir, entry)
 	compileDurationMs := time.Since(compileStartedAt).Milliseconds()
+	if compileCtx.Err() == context.DeadlineExceeded {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		w.Write([]byte("Compile timed out after " + compileTimeout.String() + " and was stopped."))
+		return
+	}
 	w.Header().Set("X-Compile-Ms", strconv.FormatInt(compileDurationMs, 10))
 	w.Header().Set("X-Latex-Compile-Ms", strconv.FormatInt(compileDurationMs, 10))
 	w.Header().Set("X-Compile-Entry", entry)
@@ -1115,6 +1139,11 @@ var compilerArtifacts = map[string]struct{}{
 }
 
 var errNoCompileEntry = errors.New("no .tex, .typ, or .md entry file found")
+
+// compileTimeout bounds a single compile. The CPU rlimit in the sandbox is a
+// backstop; this stops a compile that blocks without burning CPU, for example
+// waiting on a network fetch.
+const compileTimeout = 2 * time.Minute
 
 func isCompilableSource(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {

@@ -355,6 +355,9 @@ func (s *Server) pullWithStrategy(w http.ResponseWriter, r *http.Request, rebase
 		return
 	}
 
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
+
 	if err := s.git.Pull(r.Context(), gitclient.SyncOptions{
 		RepoDir:     filepath.Join(s.projectsDir, access.ProjectID),
 		RemoteURL:   cfg.RemoteURL,
@@ -412,6 +415,9 @@ func (s *Server) handleGitResetToRemote(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
 
 	if err := s.git.ResetToRemote(r.Context(), gitclient.SyncOptions{
 		RepoDir:   filepath.Join(s.projectsDir, access.ProjectID),
@@ -483,6 +489,9 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
+
 	pushResult, err := s.git.Push(r.Context(), gitclient.CommitOptions{
 		SyncOptions: gitclient.SyncOptions{
 			RepoDir:     filepath.Join(s.projectsDir, access.ProjectID),
@@ -531,6 +540,9 @@ func (s *Server) handleGitReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = cfg
+
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
 
 	if err := s.git.Reset(r.Context(), filepath.Join(s.projectsDir, access.ProjectID)); err != nil {
 		http.Error(w, renderGitError(err), http.StatusBadRequest)

@@ -56,7 +56,7 @@ func (c *Compiler) SetSandbox(cfg SandboxConfig) {
 // command builds the exec.Cmd for one compile, wrapped in the sandbox helper
 // when enabled. The child never inherits the server environment, so JWT_SECRET
 // is not reachable through /proc/self/environ even when the sandbox is off.
-func (c *Compiler) command(workDir, name string, args ...string) (*exec.Cmd, error) {
+func (c *Compiler) command(ctx context.Context, workDir, name string, args ...string) (*exec.Cmd, error) {
 	readOnly := make([]string, 0, len(c.sandbox.CacheDirs)+2)
 	readOnly = append(readOnly, c.sandbox.CacheDirs...)
 	for _, dir := range []string{"/usr", "/etc", "/bin", "/lib", "/lib64", "/opt", homeDir()} {
@@ -76,17 +76,19 @@ func (c *Compiler) command(workDir, name string, args ...string) (*exec.Cmd, err
 			FileSizeBytes: c.sandbox.FileSizeBytes,
 			MaxProcesses:  c.sandbox.MaxProcesses,
 		}
-		cmd, err := sandbox.Command(context.Background(), c.sandbox.SelfPath, spec, env, name, args...)
+		cmd, err := sandbox.Command(ctx, c.sandbox.SelfPath, spec, env, name, args...)
 		if err != nil {
 			return nil, err
 		}
 		cmd.Dir = workDir
+		configureProcessGroup(cmd)
 		return cmd, nil
 	}
 
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = workDir
 	cmd.Env = env
+	configureProcessGroup(cmd)
 	return cmd, nil
 }
 
@@ -97,7 +99,7 @@ func homeDir() string {
 	return ""
 }
 
-func (c *Compiler) Compile(workDir string, entryFile string) ([]byte, string, error) {
+func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string) ([]byte, string, error) {
 	if err := os.MkdirAll(workDir, 0755); err != nil {
 		return nil, "", err
 	}
@@ -141,7 +143,7 @@ func (c *Compiler) Compile(workDir string, entryFile string) ([]byte, string, er
 		return nil, "", fmt.Errorf("unsupported entry file: %s", entryFile)
 	}
 
-	cmd, err := c.command(workDir, name, args...)
+	cmd, err := c.command(ctx, workDir, name, args...)
 	if err != nil {
 		return nil, "", err
 	}

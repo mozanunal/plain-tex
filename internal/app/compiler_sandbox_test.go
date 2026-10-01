@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ printf 'pdf' > "${1%.*}.pdf"
 	t.Setenv("PATH", os.Getenv("PATH"))
 
 	compiler := NewCompiler(tectonicPath, filepath.Join(workDir, "typst-fake"))
-	if _, output, err := compiler.Compile(workDir, "main.tex"); err != nil {
+	if _, output, err := compiler.Compile(context.Background(), workDir, "main.tex"); err != nil {
 		t.Fatalf("Compile returned error: %v (output=%q)", err, output)
 	}
 

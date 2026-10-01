@@ -41,19 +41,25 @@ func (s *Server) setupRoutes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(securityHeaders)
 
+	authLimiter := newIPRateLimiter(1, 10)
+
 	staticContent, _ := fs.Sub(staticFS, "static")
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))
 
 	r.Get(healthPath, s.handleHealth)
 
 	r.Get("/login", s.handleLoginPage)
-	r.Post("/login", s.handleLogin)
 	r.Get("/register", s.handleRegisterPage)
-	r.Post("/register", s.handleRegister)
 	r.Post("/logout", s.handleLogout)
+	r.Group(func(r chi.Router) {
+		r.Use(authLimiter.middleware)
+		r.Post("/login", s.handleLogin)
+		r.Post("/register", s.handleRegister)
+	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
+		r.Use(limitRequestBody)
 
 		r.Get("/", s.handleProjectsPage)
 		r.Get("/settings", s.handleSettingsPage)

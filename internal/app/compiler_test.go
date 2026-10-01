@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,7 +29,7 @@ exit 1
 `)
 
 	compiler := NewCompiler(tectonicPath, typstPath)
-	pdf, output, err := compiler.Compile(workDir, "main.tex")
+	pdf, output, err := compiler.Compile(context.Background(), workDir, "main.tex")
 	if err != nil {
 		t.Fatalf("Compile returned error: %v (output=%q)", err, output)
 	}
@@ -73,7 +74,7 @@ printf 'fake-typst-pdf' > "$output"
 `)
 
 	compiler := NewCompiler(tectonicPath, typstPath)
-	pdf, output, err := compiler.Compile(workDir, "book/main.typ")
+	pdf, output, err := compiler.Compile(context.Background(), workDir, "book/main.typ")
 	if err != nil {
 		t.Fatalf("Compile returned error: %v (output=%q)", err, output)
 	}
@@ -109,7 +110,7 @@ func TestCompilerCompileUnsupportedExtension(t *testing.T) {
 	t.Parallel()
 
 	compiler := NewCompiler("tectonic", "typst")
-	_, _, err := compiler.Compile(t.TempDir(), "notes.md")
+	_, _, err := compiler.Compile(context.Background(), t.TempDir(), "notes.md")
 	if err == nil {
 		t.Fatalf("expected error for unsupported extension")
 	}

@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/mozanunal/poly-txt/internal/app"
 	"github.com/mozanunal/poly-txt/internal/db"
@@ -50,10 +54,41 @@ func main() {
 
 	configureCompileSandbox(server, dataDir)
 
+	httpServer := &http.Server{
+		Addr:    ":" + port,
+		Handler: server,
+		// ReadHeaderTimeout defends against slow-header clients. WriteTimeout is
+		// left unset on purpose: a compile or a large PDF/zip download can take a
+		// while, and the per-compile timeout bounds compiles instead.
+		ReadHeaderTimeout: 15 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	shutdownOnSignal(httpServer)
+
 	log.Printf("Starting server on http://localhost:%s", port)
-	if err := http.ListenAndServe(":"+port, server); err != nil {
+	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal("Server failed:", err)
 	}
+}
+
+// shutdownOnSignal drains in-flight requests on SIGINT/SIGTERM instead of
+// dropping them, so a deploy or container stop does not cut off a compile or a
+// download midway.
+func shutdownOnSignal(httpServer *http.Server) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		log.Println("Shutting down, waiting for in-flight requests to finish...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(ctx); err != nil {
+			log.Println("Graceful shutdown timed out:", err)
+		}
+	}()
 }
 
 // configureCompileSandbox turns on compile confinement according to the SANDBOX
