@@ -38,6 +38,11 @@ func NewServer(db *sql.DB, jwtSecret string, projectsDir string, tectonicBin str
 	return s, nil
 }
 
+// ConfigureCompileSandbox installs the confinement used for every compile.
+func (s *Server) ConfigureCompileSandbox(cfg SandboxConfig) {
+	s.compiler.SetSandbox(cfg)
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }

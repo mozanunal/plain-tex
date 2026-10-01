@@ -114,8 +114,17 @@ ENV PORT=3000 \
     DATA_DIR=/data \
     HOME=/home/poly \
     XDG_CACHE_HOME=/data/cache \
-    TECTONIC_CACHE_DIR=/data/cache
+    TECTONIC_CACHE_DIR=/data/cache \
+    SANDBOX=auto
 # JWT_SECRET has no default here on purpose. Set it at runtime.
+
+# SANDBOX confines each compile with Landlock so a document cannot read or write
+# files outside its project. "auto" (the default) enables it when the host
+# kernel supports Landlock (Linux 5.13+ with CONFIG_SECURITY_LANDLOCK, and the
+# container runtime must allow the landlock syscalls, which Docker's default
+# seccomp profile does on current versions). It falls back to running unconfined
+# with a log line where the kernel lacks Landlock. Set SANDBOX=required to refuse
+# to start without enforcement.
 
 # Pre-create the cache directory so it is seeded into a fresh volume with the
 # right owner. If Tectonic cannot write here it silently re-downloads its whole
