@@ -69,6 +69,11 @@ func (s *Server) setupRoutes() http.Handler {
 		r.Post("/projects/{id}/members/{userID}/remove", s.handleRemoveProjectMember)
 		r.Post("/admin/users", s.handleAdminCreateUser)
 		r.Post("/admin/users/{userID}/reset-password", s.handleAdminResetPassword)
+		r.Post("/admin/users/{userID}/disable", s.handleAdminSetUserDisabled(true))
+		r.Post("/admin/users/{userID}/enable", s.handleAdminSetUserDisabled(false))
+		r.Post("/admin/users/{userID}/promote", s.handleAdminSetUserAdmin(true))
+		r.Post("/admin/users/{userID}/demote", s.handleAdminSetUserAdmin(false))
+		r.Post("/admin/users/{userID}/delete", s.handleAdminDeleteUser)
 
 		r.Get("/editor/{id}", s.handleEditorPage)
 		r.Post("/compile/{id}", s.handleCompile)

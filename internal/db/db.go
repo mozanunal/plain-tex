@@ -31,6 +31,8 @@ func migrate(db *sql.DB) error {
 		password_hash TEXT NOT NULL,
 		name TEXT,
 		is_admin INTEGER NOT NULL DEFAULT 0,
+		disabled INTEGER NOT NULL DEFAULT 0,
+		session_version INTEGER NOT NULL DEFAULT 0,
 		created TEXT DEFAULT (datetime('now')),
 		updated TEXT DEFAULT (datetime('now'))
 	) STRICT;
@@ -119,6 +121,13 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
+	if err := ensureUsersColumn(db, "session_version", "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureUsersColumn(db, "disabled", "ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+
 	if err := ensureFirstAdmin(db); err != nil {
 		return err
 	}
@@ -136,6 +145,15 @@ func ensureUsersAdminColumn(db *sql.DB) error {
 	}
 
 	_, err = db.Exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+	return err
+}
+
+func ensureUsersColumn(db *sql.DB, column string, alter string) error {
+	exists, err := columnExists(db, "users", column)
+	if err != nil || exists {
+		return err
+	}
+	_, err = db.Exec(alter)
 	return err
 }
 

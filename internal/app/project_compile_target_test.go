@@ -118,7 +118,7 @@ func newCompileTargetTestServer(t *testing.T) (*Server, *sql.DB, string) {
 		t.Fatalf("failed to open test database: %v", err)
 	}
 
-	server, err := NewServer(database, "test-secret", projectsDir, "tectonic", "typst", "git")
+	server, err := NewServer(database, "test-secret", projectsDir, "tectonic", "typst", "git", false)
 	if err != nil {
 		database.Close()
 		t.Fatalf("failed to create test server: %v", err)

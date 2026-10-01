@@ -109,6 +109,9 @@
                   {{else}}
                   <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">user</span>
                   {{end}}
+                  {{if .Disabled}}
+                  <span class="ml-1 inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700">disabled</span>
+                  {{end}}
                 </td>
                 <td class="py-3 px-6">
                   <form
@@ -139,6 +142,31 @@
                       Reset
                     </button>
                   </form>
+                  {{if ne .ID $.User.ID}}
+                  <div class="mt-2 flex items-center justify-end gap-2">
+                    {{if .IsAdmin}}
+                    <form method="POST" action="/admin/users/{{.ID}}/demote" onsubmit="return confirm('Remove admin from {{.Email}}?')">
+                      <button type="submit" class="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 transition">Remove admin</button>
+                    </form>
+                    {{else}}
+                    <form method="POST" action="/admin/users/{{.ID}}/promote" onsubmit="return confirm('Make {{.Email}} an admin?')">
+                      <button type="submit" class="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 transition">Make admin</button>
+                    </form>
+                    {{end}}
+                    {{if .Disabled}}
+                    <form method="POST" action="/admin/users/{{.ID}}/enable">
+                      <button type="submit" class="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition">Enable</button>
+                    </form>
+                    {{else}}
+                    <form method="POST" action="/admin/users/{{.ID}}/disable" onsubmit="return confirm('Disable {{.Email}} and sign out their sessions?')">
+                      <button type="submit" class="rounded-md border border-amber-300 px-3 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 transition">Disable</button>
+                    </form>
+                    {{end}}
+                    <form method="POST" action="/admin/users/{{.ID}}/delete" onsubmit="return confirm('Permanently delete {{.Email}}? This cannot be undone.')">
+                      <button type="submit" class="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 transition">Delete</button>
+                    </form>
+                  </div>
+                  {{end}}
                 </td>
               </tr>
               {{end}}

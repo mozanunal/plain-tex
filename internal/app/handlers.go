@@ -53,10 +53,11 @@ type Project struct {
 }
 
 type UserSummary struct {
-	ID      string
-	Email   string
-	Name    string
-	IsAdmin bool
+	ID       string
+	Email    string
+	Name     string
+	IsAdmin  bool
+	Disabled bool
 }
 
 type UserGitKeySummary struct {
@@ -177,22 +178,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.createToken(user.ID, user.Email)
-	if err != nil {
+	if err := s.issueSession(w, user.ID, user.Email); err != nil {
 		s.templates.ExecuteTemplate(w, "login.html", PageData{
 			Error:                "Login failed",
 			RegistrationDisabled: registrationDisabled,
 		})
 		return
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -236,32 +228,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.createToken(id, email)
-	if err != nil {
+	if err := s.issueSession(w, id, email); err != nil {
 		s.templates.ExecuteTemplate(w, "register.html", PageData{Error: "Registration failed"})
 		return
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-	})
-
+	clearSessionCookie(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
@@ -414,14 +390,21 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.db.Exec(
-		"UPDATE users SET password_hash = ?, updated = datetime('now') WHERE id = ?",
+		"UPDATE users SET password_hash = ?, session_version = session_version + 1, updated = datetime('now') WHERE id = ?",
 		newHash, user.ID,
 	); err != nil {
 		http.Error(w, "Failed to change password", http.StatusInternalServerError)
 		return
 	}
 
-	redirectWithMessage(w, r, "/settings", "Password changed", "")
+	// The current session's cookie no longer matches the bumped version, so
+	// reissue it; other sessions are now logged out.
+	if err := s.issueSession(w, user.ID, user.Email); err != nil {
+		http.Error(w, "Failed to change password", http.StatusInternalServerError)
+		return
+	}
+
+	redirectWithMessage(w, r, "/settings", "Password changed. Other sessions have been signed out.", "")
 }
 
 func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
@@ -431,7 +414,7 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userRows, err := s.db.Query("SELECT id, email, name, is_admin FROM users ORDER BY email ASC")
+	userRows, err := s.db.Query("SELECT id, email, name, is_admin, disabled FROM users ORDER BY email ASC")
 	if err != nil {
 		http.Error(w, "Failed to load users", http.StatusInternalServerError)
 		return
@@ -443,7 +426,8 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		var candidate UserSummary
 		var name sql.NullString
 		var isAdmin int
-		if err := userRows.Scan(&candidate.ID, &candidate.Email, &name, &isAdmin); err != nil {
+		var disabled int
+		if err := userRows.Scan(&candidate.ID, &candidate.Email, &name, &isAdmin, &disabled); err != nil {
 			http.Error(w, "Failed to load users", http.StatusInternalServerError)
 			return
 		}
@@ -451,6 +435,7 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 			candidate.Name = name.String
 		}
 		candidate.IsAdmin = isAdmin == 1
+		candidate.Disabled = disabled == 1
 		users = append(users, candidate)
 	}
 	if err := userRows.Err(); err != nil {
@@ -593,14 +578,14 @@ func (s *Server) handleAdminResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	if _, err := s.db.Exec(
-		"UPDATE users SET password_hash = ?, updated = datetime('now') WHERE id = ?",
+		"UPDATE users SET password_hash = ?, session_version = session_version + 1, updated = datetime('now') WHERE id = ?",
 		hash, targetID,
 	); err != nil {
 		http.Error(w, "Failed to reset password", http.StatusInternalServerError)
 		return
 	}
 
-	redirectWithMessage(w, r, "/admin/users", "Password reset for "+email, "")
+	redirectWithMessage(w, r, "/admin/users", "Password reset for "+email+". Their existing sessions are signed out.", "")
 }
 
 func (s *Server) handleAddProjectMember(w http.ResponseWriter, r *http.Request) {

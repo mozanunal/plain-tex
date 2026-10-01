@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"os"
@@ -21,8 +23,9 @@ func main() {
 	}
 
 	port := getEnv("PORT", "3000")
-	jwtSecret := getEnv("JWT_SECRET", "change-me-in-production")
+	jwtSecret := resolveJWTSecret()
 	dataDir := getEnv("DATA_DIR", "data")
+	secureCookies := isTruthy(os.Getenv("SECURE_COOKIES"))
 	tectonicBin := getEnv("TECTONIC_BIN", "tectonic")
 	typstBin := getEnv("TYPST_BIN", "typst")
 	gitBin := getEnv("GIT_BIN", "git")
@@ -40,7 +43,7 @@ func main() {
 	}
 	defer database.Close()
 
-	server, err := app.NewServer(database, jwtSecret, projectsDir, tectonicBin, typstBin, gitBin)
+	server, err := app.NewServer(database, jwtSecret, projectsDir, tectonicBin, typstBin, gitBin, secureCookies)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -98,6 +101,38 @@ func compileCacheDirs(dataDir string) []string {
 		}
 	}
 	return dirs
+}
+
+// resolveJWTSecret returns the signing and encryption secret. An unset secret
+// yields a random ephemeral one so development just works, at the cost of
+// sessions and stored SSH keys not surviving a restart. The shipped placeholder
+// is refused outright, so it can never reach production by being copied from an
+// example.
+func resolveJWTSecret() string {
+	secret := os.Getenv("JWT_SECRET")
+	switch {
+	case secret == "":
+		buf := make([]byte, 32)
+		if _, err := rand.Read(buf); err != nil {
+			log.Fatal("Failed to generate an ephemeral JWT secret:", err)
+		}
+		log.Println("WARNING: JWT_SECRET is not set. Using a random ephemeral secret; " +
+			"sessions and stored SSH keys will not survive a restart. Set JWT_SECRET for production.")
+		return hex.EncodeToString(buf)
+	case secret == "change-me-in-production":
+		log.Fatal("JWT_SECRET is set to the example placeholder. Set a real secret, e.g. openssl rand -hex 32.")
+	case len(secret) < 16:
+		log.Println("WARNING: JWT_SECRET is shorter than 16 characters. Use a longer random value, e.g. openssl rand -hex 32.")
+	}
+	return secret
+}
+
+func isTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
 }
 
 func getEnv(key, fallback string) string {

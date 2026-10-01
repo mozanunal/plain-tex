@@ -9,22 +9,24 @@ import (
 )
 
 type Server struct {
-	db          *sql.DB
-	compiler    *Compiler
-	git         *gitclient.Client
-	templates   *template.Template
-	jwtSecret   []byte
-	projectsDir string
-	router      http.Handler
+	db            *sql.DB
+	compiler      *Compiler
+	git           *gitclient.Client
+	templates     *template.Template
+	jwtSecret     []byte
+	projectsDir   string
+	secureCookies bool
+	router        http.Handler
 }
 
-func NewServer(db *sql.DB, jwtSecret string, projectsDir string, tectonicBin string, typstBin string, gitBin string) (*Server, error) {
+func NewServer(db *sql.DB, jwtSecret string, projectsDir string, tectonicBin string, typstBin string, gitBin string, secureCookies bool) (*Server, error) {
 	s := &Server{
-		db:          db,
-		compiler:    NewCompiler(tectonicBin, typstBin),
-		git:         gitclient.New(gitBin),
-		jwtSecret:   []byte(jwtSecret),
-		projectsDir: projectsDir,
+		db:            db,
+		compiler:      NewCompiler(tectonicBin, typstBin),
+		git:           gitclient.New(gitBin),
+		jwtSecret:     []byte(jwtSecret),
+		projectsDir:   projectsDir,
+		secureCookies: secureCookies,
 	}
 
 	tmpl, err := loadTemplates()
