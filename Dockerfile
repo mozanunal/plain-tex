@@ -1,5 +1,14 @@
 # syntax=docker/dockerfile:1
 
+##########  Fetch the pinned frontend libraries  ##########
+# Monaco and pdf.js are not committed. The script pins each version and checks
+# the npm registry's integrity hash, and this layer caches until it changes.
+FROM alpine:3.20 AS frontend
+RUN apk add --no-cache curl openssl
+WORKDIR /src
+COPY scripts/vendor-frontend.sh scripts/
+RUN ./scripts/vendor-frontend.sh
+
 ##########  Build the static Go binary  ##########
 FROM golang:1.24-alpine AS build
 RUN apk add --no-cache git ca-certificates
@@ -12,6 +21,7 @@ RUN go mod download
 # Build. Templates and static assets are embedded via go:embed, and the
 # SQLite driver (modernc.org/sqlite) is pure Go, so the binary is fully static.
 COPY . .
+COPY --from=frontend /src/internal/app/static/vendor internal/app/static/vendor
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/poly-txt ./cmd/server
 
 ##########  Fetch the Typst compiler (static musl binary)  ##########

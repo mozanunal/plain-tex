@@ -106,8 +106,10 @@ keys, so losing it means everyone signs in again and regenerates their keys.
 
 ### Running from source
 
-Needs Go 1.22+, plus `tectonic`, `typst`, and `git` on your `PATH`. Typst must be
-0.14.0 or newer for Markdown support.
+Needs Go 1.24+, plus `tectonic`, `typst`, and `git` on your `PATH`. Typst must be
+0.14.0 or newer for Markdown support. The first `make` run downloads the pinned Monaco
+and pdf.js builds into `internal/app/static/vendor/` (checked against their npm
+integrity hashes, not committed); `make vendor` fetches them on their own.
 
 ```bash
 make dev          # http://localhost:3000

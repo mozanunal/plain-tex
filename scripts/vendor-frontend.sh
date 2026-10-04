@@ -1,7 +1,8 @@
 #!/bin/sh
-# Fetch the pinned frontend libraries the editor needs and vendor them into
-# internal/app/static/vendor, so the UI never loads code from a third-party CDN
-# and works on networks with no internet access.
+# Fetch the pinned frontend libraries the editor needs into
+# internal/app/static/vendor, where go:embed bundles them into the binary, so
+# the UI never loads code from a third-party CDN. The directory is not committed:
+# make dev/build/test and the Docker build run this script.
 #
 # Each tarball is checked against the sha512 integrity hash the npm registry
 # published for that exact version. Update a library by changing its version and
@@ -43,9 +44,21 @@ PDFJS_DIR="$VENDOR/pdfjs-dist-$PDFJS_VERSION"
 rm -rf "$VENDOR"
 mkdir -p "$MONACO_DIR" "$PDFJS_DIR"
 
-cp -R "$WORK/monaco-editor/package/min/vs" "$MONACO_DIR/vs"
-# The UI is English only, so the translated message bundles are never loaded.
-rm -f "$MONACO_DIR"/vs/editor/editor.main.nls.*.js
+# Only the files the editor loads. Its LaTeX, BibTeX, and Typst modes are
+# defined in editor.js, so Markdown is the one Monaco language it uses, and the
+# UI is English only, so no translated message bundles.
+for file in \
+	vs/loader.js \
+	vs/editor/editor.main.js \
+	vs/editor/editor.main.css \
+	vs/editor/editor.main.nls.js \
+	vs/base/worker/workerMain.js \
+	vs/base/common/worker/simpleWorker.nls.js \
+	vs/base/browser/ui/codicons/codicon/codicon.ttf \
+	vs/basic-languages/markdown/markdown.js; do
+	mkdir -p "$MONACO_DIR/$(dirname "$file")"
+	cp "$WORK/monaco-editor/package/min/$file" "$MONACO_DIR/$file"
+done
 cp "$WORK/monaco-editor/package/LICENSE" "$MONACO_DIR/LICENSE"
 
 cp "$WORK/pdfjs-dist/package/build/pdf.min.js" "$PDFJS_DIR/pdf.min.js"

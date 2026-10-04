@@ -33,7 +33,7 @@ func TestTemplatesReferenceOnlyEmbeddedAssets(t *testing.T) {
 		for _, match := range assetRef.FindAllSubmatch(content, -1) {
 			embeddedPath := strings.TrimPrefix(string(match[1]), "/")
 			if _, err := fs.Stat(staticFS, embeddedPath); err != nil {
-				t.Errorf("%s references %s, which is not embedded", name, match[1])
+				t.Errorf("%s references %s, which is not embedded (run make vendor)", name, match[1])
 			}
 		}
 	}

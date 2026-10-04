@@ -3,6 +3,8 @@ package app
 import (
 	"database/sql"
 	"html/template"
+	"io/fs"
+	"log"
 	"net/http"
 	"runtime"
 	"sync"
@@ -44,6 +46,11 @@ func NewServer(db *sql.DB, jwtSecret string, projectsDir string, tectonicBin str
 		return nil, err
 	}
 	s.templates = tmpl
+
+	if _, err := fs.Stat(staticFS, "static/vendor"); err != nil {
+		log.Print("WARNING: Monaco and pdf.js are missing from this build, so the editor will not load. " +
+			"Run `make vendor` (or build with `make build`) before compiling the binary.")
+	}
 
 	s.router = s.setupRoutes()
 

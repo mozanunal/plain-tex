@@ -20,5 +20,8 @@ node_modules/
 *.log
 /server
 
+# Frontend libraries fetched by scripts/vendor-frontend.sh (make vendor)
+/internal/app/static/vendor/
+
 # Local signing secret (also decrypts stored SSH keys)
 .jwt_secret

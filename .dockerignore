@@ -8,7 +8,8 @@ data
 # Build artifacts and the committed dev binary
 bin
 /server
-internal/app/static/style.css
+# Fetched fresh in the frontend stage instead
+internal/app/static/vendor
 
 # Dependencies
 node_modules
