@@ -118,7 +118,7 @@
                     method="POST"
                     action="/admin/users/{{.ID}}/reset-password"
                     class="flex items-center justify-end gap-2"
-                    onsubmit="return confirm('Reset password for {{.Email}}?')"
+                    data-confirm="Reset password for {{.Email}}?"
                   >
                     <input
                       type="password"
@@ -130,7 +130,7 @@
                     >
                     <button
                       type="button"
-                      onclick="polyGeneratePassword(this)"
+                      data-action="generate-password"
                       class="whitespace-nowrap rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 transition"
                     >
                       Generate
@@ -145,11 +145,11 @@
                   {{if ne .ID $.User.ID}}
                   <div class="mt-2 flex items-center justify-end gap-2">
                     {{if .IsAdmin}}
-                    <form method="POST" action="/admin/users/{{.ID}}/demote" onsubmit="return confirm('Remove admin from {{.Email}}?')">
+                    <form method="POST" action="/admin/users/{{.ID}}/demote" data-confirm="Remove admin from {{.Email}}?">
                       <button type="submit" class="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 transition">Remove admin</button>
                     </form>
                     {{else}}
-                    <form method="POST" action="/admin/users/{{.ID}}/promote" onsubmit="return confirm('Make {{.Email}} an admin?')">
+                    <form method="POST" action="/admin/users/{{.ID}}/promote" data-confirm="Make {{.Email}} an admin?">
                       <button type="submit" class="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 transition">Make admin</button>
                     </form>
                     {{end}}
@@ -158,11 +158,11 @@
                       <button type="submit" class="rounded-md border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 transition">Enable</button>
                     </form>
                     {{else}}
-                    <form method="POST" action="/admin/users/{{.ID}}/disable" onsubmit="return confirm('Disable {{.Email}} and sign out their sessions?')">
+                    <form method="POST" action="/admin/users/{{.ID}}/disable" data-confirm="Disable {{.Email}} and sign out their sessions?">
                       <button type="submit" class="rounded-md border border-amber-300 px-3 py-1 text-xs font-medium text-amber-700 hover:bg-amber-50 transition">Disable</button>
                     </form>
                     {{end}}
-                    <form method="POST" action="/admin/users/{{.ID}}/delete" onsubmit="return confirm('Permanently delete {{.Email}}? This cannot be undone.')">
+                    <form method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Permanently delete {{.Email}}? This cannot be undone.">
                       <button type="submit" class="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 transition">Delete</button>
                     </form>
                   </div>
@@ -178,23 +178,5 @@
         {{end}}
       </section>
     </main>
-
-    <script>
-      function polyGeneratePassword(btn) {
-        var chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
-        var length = 16;
-        var values = new Uint32Array(length);
-        crypto.getRandomValues(values);
-        var password = "";
-        for (var i = 0; i < length; i++) {
-          password += chars[values[i] % chars.length];
-        }
-        var input = btn.closest("form").querySelector('input[name="password"]');
-        input.type = "text";
-        input.value = password;
-        input.focus();
-        input.select();
-      }
-    </script>
   </body>
 </html>

@@ -2,8 +2,6 @@
 
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/poly-txt
-CSS_INPUT := internal/app/static/input.css
-CSS_OUTPUT := internal/app/static/style.css
 DOCKER_IMAGE := poly-txt:latest
 SECRET_FILE := .jwt_secret
 
@@ -17,17 +15,13 @@ dev: ## Run development server
 	go run ./cmd/server
 
 .PHONY: build
-build: css ## Build production binary
+build: ## Build production binary
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BINARY) ./cmd/server
 
-.PHONY: css
-css: ## Compile Tailwind CSS for production
-	npx tailwindcss -i $(CSS_INPUT) -o $(CSS_OUTPUT) --minify
-
-.PHONY: css-watch
-css-watch: ## Compile Tailwind CSS with hot reload
-	npx tailwindcss -i $(CSS_INPUT) -o $(CSS_OUTPUT) --watch
+.PHONY: vendor
+vendor: ## Re-download the pinned Monaco and pdf.js builds into static/vendor
+	./scripts/vendor-frontend.sh
 
 .PHONY: format
 format: ## Format Go code
@@ -68,5 +62,4 @@ docker-run: docker-build ## Run the container (reuses the secret in .jwt_secret)
 .PHONY: clean
 clean: ## Remove build artifacts
 	rm -rf $(BIN_DIR)
-	rm -f $(CSS_OUTPUT)
 	rm -f data/latex.db

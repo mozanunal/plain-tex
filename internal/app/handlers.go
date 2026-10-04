@@ -765,6 +765,7 @@ func (s *Server) handleEditorPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Security-Policy", editorContentSecurityPolicy)
 	s.templates.ExecuteTemplate(w, "editor.html", PageData{
 		User:             user,
 		UserGitKey:       userGitKey,
@@ -953,8 +954,7 @@ func (s *Server) handleGetPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := access.ProjectID
 
-	pdfPath := filepath.Join(s.projectsDir, projectID, filepath.FromSlash(CompiledPDFRelPath))
-	pdf, err := os.ReadFile(pdfPath)
+	pdf, err := readFileWithinProject(filepath.Join(s.projectsDir, projectID), CompiledPDFRelPath)
 	if err != nil {
 		http.Error(w, "PDF not found", http.StatusNotFound)
 		return
@@ -1014,8 +1014,7 @@ func (s *Server) handleDownloadPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := access.ProjectID
 
-	pdfPath := filepath.Join(s.projectsDir, projectID, filepath.FromSlash(CompiledPDFRelPath))
-	pdf, err := os.ReadFile(pdfPath)
+	pdf, err := readFileWithinProject(filepath.Join(s.projectsDir, projectID), CompiledPDFRelPath)
 	if err != nil {
 		http.Error(w, "PDF not found. Compile first.", http.StatusNotFound)
 		return

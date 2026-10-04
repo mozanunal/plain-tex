@@ -1,172 +1,169 @@
 # poly-txt
 
-poly-txt is a self-hosted collaborative editor for LaTeX/Typst projects. It provides a browser-based workspace with file management, compilation, PDF preview, comments, and role-based project access.
+**A self-hosted paper writing and collaboration platform for research labs and teams.**
+
+poly-txt gives your group a shared browser workspace for writing papers, proposals,
+and reports in LaTeX, Typst, or Markdown, without handing unpublished work to someone
+else's cloud. You run it. Your data stays on your disk, in a shape you can read, back
+up, and walk away with at any time.
+
+Named for the formats it speaks: many text formats, one workspace.
+
+---
+
+## Why another editor
+
+Most collaborative writing tools ask you to trade ownership for convenience. For a lab
+working on unpublished results, a grant proposal, or anything under embargo, that
+trade is often not acceptable, and the exit path usually means exporting a zip and
+losing the history.
+
+poly-txt takes the opposite position:
+
+- **Your data is two things you already understand.** A directory of plain files, and
+  one SQLite database. Nothing else.
+- **No lock-in.** Projects are ordinary `.tex`, `.typ`, and `.md` files in ordinary
+  folders. Open them in any editor. Push them to your own Git remote.
+- **Backup is `tar`.** Migration is moving a folder to another machine.
+- **One binary.** No external database, no message broker, no cluster.
+
+## Your data, in one place
+
+Everything poly-txt knows lives under a single directory (`DATA_DIR`):
+
+```text
+data/
+├── latex.db                  # SQLite: users, projects, roles, comments, Git config
+└── projects/
+    ├── 3f2a.../              # one folder per project, plain files on disk
+    │   ├── main.tex
+    │   ├── sections/
+    │   ├── figures/
+    │   └── references.bib
+    └── 8c41.../
+```
+
+Back the whole thing up:
+
+```bash
+tar czf poly-txt-backup.tar.gz -C /path/to/data .
+```
+
+Move it to a new server, point `DATA_DIR` at it, and you are running again. That is
+the entire migration story.
 
 ## Features
 
-- Email/password authentication with JWT session cookies.
-- First registered user becomes admin automatically.
-- Multi-project workspace with owner/admin/member roles.
-- Per-project file tree with create, upload, rename, move, delete, and preview.
-- Compilation support for `.tex`, `.typ`, and `.md` entry files.
-- In-browser editor (Monaco) plus PDF viewer (pdf.js).
-- Source-to-PDF and PDF-to-source jump support.
-- Line-based comments on text files.
-- Download compiled PDF or full project source zip.
-- SQLite-backed metadata storage.
+**Writing and compiling**
 
-## Tech Stack
+- LaTeX via [Tectonic](https://tectonic-typesetting.github.io/), Typst, and Markdown
+  (rendered through Typst).
+- Monaco editor with syntax highlighting, and a pdf.js preview beside it.
+- Split, editor-only, and PDF-only layouts.
+- Pick any `.tex`, `.typ`, or `.md` file as the compile entry point straight from the
+  file browser. The choice is stored per project, so it survives reloads.
+- Click a spot in the PDF to jump to the approximate matching source line.
+- Download the compiled PDF, or the whole project as a zip.
 
-- Go 1.22
-- `chi` router
-- SQLite (`modernc.org/sqlite`)
-- HTML templates + Tailwind CDN
-- Monaco Editor + pdf.js (CDN)
-- External compilers:
-  - Tectonic (`.tex`)
-  - Typst (`.typ`, `.md`)
+**Collaboration**
 
-## Requirements
+- Per-project membership with five roles: owner, admin, writer, commenter, reader.
+- Line-anchored comments on any text file, for review passes without email threads.
+- Admins manage accounts centrally and can reset any user's password.
 
-- Go 1.22+
-- `tectonic` installed and available on `PATH` (or set `TECTONIC_BIN`)
-- `typst` 0.14.0 or newer on `PATH` (or set `TYPST_BIN`). Markdown rendering uses
-  the `cmarker` Typst package, which requires 0.14.0+.
-- Fonts for any `fontspec` document. `\setmainfont{Arial}` needs Arial (or a
-  metric-compatible substitute such as Liberation Sans) installed on the host.
-  The Docker image handles this for you.
-- Optional for CSS targets in `Makefile`: Node.js + `npx`
+**Git, as a first-class citizen**
 
-## Quick Start
+- Clone an existing repository straight into a project.
+- Commit, pull, and push from the editor sidebar.
+- Each user gets their own SSH key, generated in-app, with the private half encrypted
+  at rest. Add the public key to GitHub, GitLab, or your own host.
+- Live ahead/behind counts, and a guided recovery path when a branch diverges: replay
+  your commits with a rebase, or discard them to match the remote.
+- Build artifacts are kept out of your commits automatically.
 
-```bash
-go run ./cmd/server
-```
+**Operations**
 
-Open `http://localhost:3000`.
+- Single static Go binary. Templates and assets are compiled in.
+- Container image ships Tectonic, Typst, Git, SSH, and the fonts LaTeX documents
+  usually expect, including Arial.
+- `GET /healthz` for load balancers and uptime monitors.
 
-Account bootstrap flow:
-
-1. Register the first user at `/register`.
-2. That first user is admin.
-3. After at least one user exists, public registration is disabled.
-4. Admins create additional users from `/admin/users`.
-
-## Deployment
-
-Run it with Docker:
+## Quick start
 
 ```bash
+git clone https://github.com/mozanunal/poly-txt.git
+cd poly-txt
+
 JWT_SECRET=$(openssl rand -hex 32) docker compose up -d --build
 ```
 
-See [docs/deployment.md](docs/deployment.md) for the full guide, covering image
-builds, configuration, data persistence and backups, TLS via a reverse proxy,
-updates, and running without Docker.
+Open <http://localhost:3000> and register. **The first account you create becomes the
+admin**, and public registration closes immediately afterwards. From there the admin
+creates the rest of the team at `/admin/users`.
+
+Keep that `JWT_SECRET` somewhere safe. It signs sessions **and** encrypts stored SSH
+keys, so losing it means everyone signs in again and regenerates their keys.
+
+### Running from source
+
+Needs Go 1.22+, plus `tectonic`, `typst`, and `git` on your `PATH`. Typst must be
+0.14.0 or newer for Markdown support.
+
+```bash
+make dev          # http://localhost:3000
+make check        # format, vet, test
+make build        # bin/poly-txt
+```
 
 ## Configuration
 
-Environment variables:
+Everything is environment variables.
 
 | Variable | Default | Description |
 | --- | --- | --- |
+| `JWT_SECRET` | `change-me-in-production` | Signs session cookies and encrypts stored SSH private keys. Set it, and keep it stable. |
 | `PORT` | `3000` | HTTP listen port |
-| `JWT_SECRET` | `change-me-in-production` | Signs session cookies **and encrypts stored SSH private keys**. Set it in production and keep it stable: changing it makes saved SSH keys undecryptable. |
-| `DATA_DIR` | `data` | Base directory for SQLite DB and project files |
-| `TECTONIC_BIN` | `tectonic` | Path to tectonic binary |
-| `TYPST_BIN` | `typst` | Path to typst binary |
+| `DATA_DIR` | `data` | The one directory holding the database and all project files |
+| `TECTONIC_BIN` | `tectonic` | Path to the tectonic binary |
+| `TYPST_BIN` | `typst` | Path to the typst binary |
+| `GIT_BIN` | `git` | Path to the git binary |
 
-Runtime data layout:
+## Access model
 
-- `data/latex.db`: SQLite database
-- `data/projects/<project-id>/`: project files and compilation artifacts
+| Role | Read | Comment | Write and compile | Manage members |
+| --- | --- | --- | --- | --- |
+| `owner` | yes | yes | yes | yes |
+| `admin` | yes | yes | yes | yes |
+| `writer` | yes | yes | yes | no |
+| `commenter` | yes | yes | no | no |
+| `reader` | yes | no | no | no |
 
-## Compile Behavior
+Admin is instance-wide. The other roles are granted per project.
 
-- Allowed compile entry extensions: `.tex`, `.typ`, `.md`.
-- If no `entry` is provided, default selection order is:
-  1. `main.tex`
-  2. `main.typ`
-  3. `main.md`
-  4. `README.md`
-  5. First lexicographic compilable file in project tree
-- Markdown compilation is executed through Typst using a generated wrapper file.
+## Deployment
 
-## Access Model
+[docs/deployment.md](docs/deployment.md) is the full guide: building the image,
+persistence and backups, TLS through Caddy or nginx, fonts, updates, health checks,
+and a systemd unit for running without Docker.
 
-- `admin`: full access to all projects and user management.
-- `owner`: full access to owned project.
-- `writer`: read + write + compile.
-- `commenter`: read + comment.
-- `reader`: read-only.
+## What this is not
 
-## Development
+Worth being clear before you adopt it:
 
-Make targets:
+- **Not a real-time co-editor.** There is no live cursor sharing or simultaneous
+  typing in one file. Collaboration works the way most research teams already work:
+  shared projects, roles, comments, and Git. Two people editing the same file at the
+  same moment will overwrite each other.
+- **Single node.** One process, one SQLite database, local disk. That is a deliberate
+  choice in service of the backup story, not a stepping stone to a cluster.
+- **PDF to source jumping is approximate.** It estimates the location rather than
+  reading SyncTeX data.
 
-```bash
-make help
-make dev
-make build
-make css
-make css-build
-make clean
-```
+## Tech stack
 
-Run tests:
+Go with the `chi` router, SQLite through the pure-Go `modernc.org/sqlite` driver (so
+the binary is fully static), `html/template`, Tailwind, Monaco, and pdf.js.
 
-```bash
-go test ./...
-```
+## Contributing
 
-Current test status in this workspace: passing.
-
-## HTTP Routes (high level)
-
-Health:
-
-- `GET /healthz` (no auth, returns `{"status":"ok"}`)
-
-Auth:
-
-- `GET/POST /login`
-- `GET/POST /register`
-- `POST /logout`
-
-Projects and admin:
-
-- `GET /`
-- `GET /admin/users`
-- `POST /admin/users`
-- `POST /projects`
-- `DELETE /projects/{id}`
-- `POST /projects/{id}/members`
-- `POST /projects/{id}/members/{userID}/remove`
-
-Editor and compile:
-
-- `GET /editor/{id}`
-- `POST /compile/{id}`
-- `POST /save/{id}`
-- `GET /pdf/{id}`
-- `GET /api/projects/{id}/download/source`
-- `GET /api/projects/{id}/download/pdf`
-
-Files and comments:
-
-- `GET /api/projects/{id}/files`
-- `POST /api/projects/{id}/files`
-- `POST /api/projects/{id}/files/move`
-- `POST /api/projects/{id}/upload`
-- `GET/PUT/DELETE /api/projects/{id}/files/*`
-- `GET/POST /api/projects/{id}/comments`
-- `DELETE /api/projects/{id}/comments/{commentID}`
-
-## Project Structure
-
-```text
-cmd/server/main.go           # app entrypoint and env wiring
-internal/app/                # HTTP server, handlers, templates, compile logic
-internal/db/db.go            # SQLite schema and migrations
-data/                        # local runtime data (ignored by git)
-```
+Issues and pull requests are welcome. Please run `make check` before opening a PR.

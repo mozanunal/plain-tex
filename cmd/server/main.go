@@ -52,7 +52,7 @@ func main() {
 		log.Fatal("Failed to create server:", err)
 	}
 
-	configureCompileSandbox(server, dataDir)
+	configureCompileSandbox(server)
 
 	httpServer := &http.Server{
 		Addr:    ":" + port,
@@ -94,7 +94,7 @@ func shutdownOnSignal(httpServer *http.Server) {
 // configureCompileSandbox turns on compile confinement according to the SANDBOX
 // setting: "required" refuses to start without it, "off" disables it, and the
 // default enables it wherever the platform supports it.
-func configureCompileSandbox(server *app.Server, dataDir string) {
+func configureCompileSandbox(server *app.Server) {
 	mode := strings.ToLower(strings.TrimSpace(getEnv("SANDBOX", "auto")))
 	available := sandbox.Available()
 
@@ -115,27 +115,48 @@ func configureCompileSandbox(server *app.Server, dataDir string) {
 		log.Fatal("Failed to locate the server binary for the compile sandbox:", err)
 	}
 
-	cacheDirs := compileCacheDirs(dataDir)
+	var readOnly []string
+	if cacheHome := strings.TrimSpace(os.Getenv("XDG_CACHE_HOME")); cacheHome != "" {
+		readOnly = append(readOnly, cacheHome)
+	}
+	tectonicCache, typstCache := sharedCompilerCaches()
 	server.ConfigureCompileSandbox(app.SandboxConfig{
-		Enabled:       true,
-		SelfPath:      self,
-		CacheDirs:     cacheDirs,
-		CPUSeconds:    app.DefaultCompileCPUSeconds,
-		MemoryBytes:   app.DefaultCompileMemoryBytes,
-		FileSizeBytes: app.DefaultCompileFileSizeBytes,
-		MaxProcesses:  app.DefaultCompileMaxProcesses,
+		Enabled:              true,
+		SelfPath:             self,
+		CacheDirs:            readOnly,
+		TectonicCacheDir:     tectonicCache,
+		TypstPackageCacheDir: typstCache,
+		CPUSeconds:           app.DefaultCompileCPUSeconds,
+		MemoryBytes:          app.DefaultCompileMemoryBytes,
+		FileSizeBytes:        app.DefaultCompileFileSizeBytes,
+		MaxProcesses:         app.DefaultCompileMaxProcesses,
 	})
-	log.Printf("Compile sandbox: ENABLED (read-write: a project dir only; read-only: %s).", strings.Join(cacheDirs, ", "))
+	log.Printf("Compile sandbox: ENABLED (read-write: the project only; each project's compiler cache is seeded from %s and %s).",
+		tectonicCache, typstCache)
 }
 
-func compileCacheDirs(dataDir string) []string {
-	dirs := []string{filepath.Join(dataDir, "cache")}
-	for _, key := range []string{"TECTONIC_CACHE_DIR", "XDG_CACHE_HOME", "TYPST_PACKAGE_CACHE_PATH"} {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			dirs = append(dirs, value)
+// sharedCompilerCaches returns the caches Tectonic and Typst use when run
+// directly, following each tool's own lookup on Linux, the only platform the
+// sandbox runs on.
+func sharedCompilerCaches() (tectonic, typst string) {
+	cacheHome := strings.TrimSpace(os.Getenv("XDG_CACHE_HOME"))
+	if cacheHome == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			cacheHome = filepath.Join(home, ".cache")
 		}
 	}
-	return dirs
+
+	tectonic = strings.TrimSpace(os.Getenv("TECTONIC_CACHE_DIR"))
+	typst = strings.TrimSpace(os.Getenv("TYPST_PACKAGE_CACHE_PATH"))
+	if cacheHome != "" {
+		if tectonic == "" {
+			tectonic = filepath.Join(cacheHome, "Tectonic")
+		}
+		if typst == "" {
+			typst = filepath.Join(cacheHome, "typst", "packages")
+		}
+	}
+	return tectonic, typst
 }
 
 // resolveJWTSecret returns the signing and encryption secret. An unset secret

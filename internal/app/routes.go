@@ -3,6 +3,7 @@ package app
 import (
 	"io/fs"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -24,12 +25,56 @@ func requestLogger(next http.Handler) http.Handler {
 	})
 }
 
+// contentSecurityPolicy allows only same-origin scripts, styles, and requests.
+// Every asset is served from /static, so no page needs a third-party origin,
+// inline script, or eval.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self'; " +
+	"img-src 'self' data:; " +
+	"font-src 'self'; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'self'"
+
+// editorContentSecurityPolicy relaxes the default for the editor page only.
+// Monaco writes its theme and layout through <style> elements and style
+// attributes, so styles must allow inline (scripts stay strict). File previews
+// show uploads through blob: URLs in <img>, <audio>, <video>, and a PDF <iframe>.
+const editorContentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: blob:; " +
+	"media-src 'self' blob:; " +
+	"frame-src blob:; " +
+	"font-src 'self'; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'self'"
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		headers := w.Header()
+		headers.Set("Content-Security-Policy", contentSecurityPolicy)
 		headers.Set("X-Content-Type-Options", "nosniff")
 		headers.Set("X-Frame-Options", "SAMEORIGIN")
 		headers.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// cacheVendoredAssets lets browsers keep third-party libraries indefinitely.
+// They live under a directory named for their exact version, so an upgrade
+// changes the URL rather than the bytes behind an existing one.
+func cacheVendoredAssets(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/static/vendor/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -44,7 +89,7 @@ func (s *Server) setupRoutes() http.Handler {
 	authLimiter := newIPRateLimiter(1, 10)
 
 	staticContent, _ := fs.Sub(staticFS, "static")
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(staticContent))))
+	r.Handle("/static/*", cacheVendoredAssets(http.StripPrefix("/static/", http.FileServer(http.FS(staticContent)))))
 
 	r.Get(healthPath, s.handleHealth)
 

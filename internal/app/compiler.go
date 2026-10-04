@@ -16,17 +16,21 @@ import (
 
 // SandboxConfig controls how compiles are confined. When Enabled, each compile
 // runs through the sandbox helper with read-write access to the project
-// directory only and read-only access to CacheDirs (the Tectonic and Typst
-// caches, fonts, and the toolchain). The limits bound a runaway or malicious
-// document.
+// directory only and read-only access to CacheDirs, the shared compiler caches,
+// fonts, and the toolchain. The limits bound a runaway or malicious document.
 type SandboxConfig struct {
-	Enabled       bool
-	SelfPath      string
-	CacheDirs     []string
-	CPUSeconds    uint64
-	MemoryBytes   uint64
-	FileSizeBytes uint64
-	MaxProcesses  uint64
+	Enabled   bool
+	SelfPath  string
+	CacheDirs []string
+	// TectonicCacheDir and TypstPackageCacheDir are the shared compiler caches.
+	// Sandboxed compiles reach them only through a per-project cache, see
+	// projectCacheEnv.
+	TectonicCacheDir     string
+	TypstPackageCacheDir string
+	CPUSeconds           uint64
+	MemoryBytes          uint64
+	FileSizeBytes        uint64
+	MaxProcesses         uint64
 }
 
 type Compiler struct {
@@ -57,9 +61,9 @@ func (c *Compiler) SetSandbox(cfg SandboxConfig) {
 // when enabled. The child never inherits the server environment, so JWT_SECRET
 // is not reachable through /proc/self/environ even when the sandbox is off.
 func (c *Compiler) command(ctx context.Context, workDir, name string, args ...string) (*exec.Cmd, error) {
-	readOnly := make([]string, 0, len(c.sandbox.CacheDirs)+2)
+	readOnly := make([]string, 0, len(c.sandbox.CacheDirs)+9)
 	readOnly = append(readOnly, c.sandbox.CacheDirs...)
-	for _, dir := range []string{"/usr", "/etc", "/bin", "/lib", "/lib64", "/opt", homeDir()} {
+	for _, dir := range []string{c.sandbox.TectonicCacheDir, c.sandbox.TypstPackageCacheDir, "/usr", "/etc", "/bin", "/lib", "/lib64", "/opt", homeDir()} {
 		if dir != "" {
 			readOnly = append(readOnly, dir)
 		}
@@ -68,6 +72,12 @@ func (c *Compiler) command(ctx context.Context, workDir, name string, args ...st
 	env := procenv.Minimal()
 
 	if c.sandbox.Enabled {
+		cacheEnv, err := c.projectCacheEnv(workDir)
+		if err != nil {
+			return nil, err
+		}
+		env = procenv.Minimal(cacheEnv...)
+
 		spec := sandbox.Spec{
 			ReadWrite:     []string{workDir},
 			ReadOnly:      readOnly,
@@ -115,7 +125,7 @@ func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string
 	// next to the source. That keeps the project tree clean, and it means a
 	// figure a user commits as fig.pdf is no longer mistaken for build output
 	// and excluded from Git.
-	if err := os.MkdirAll(filepath.Join(workDir, buildDirName), 0755); err != nil {
+	if err := ensureRealDir(filepath.Join(workDir, buildDirName)); err != nil {
 		return nil, "", err
 	}
 	pdfFile := buildDirName + "/" + "main.pdf"
@@ -168,14 +178,13 @@ func (c *Compiler) Compile(ctx context.Context, workDir string, entryFile string
 		return nil, string(output), err
 	}
 
-	pdfPath := filepath.Join(workDir, filepath.FromSlash(pdfFile))
-	pdf, readErr := os.ReadFile(pdfPath)
+	pdf, readErr := readFileWithinProject(workDir, pdfFile)
 	if readErr != nil {
 		return nil, string(output), readErr
 	}
 
 	if filepath.ToSlash(pdfFile) != CompiledPDFRelPath {
-		_ = os.WriteFile(filepath.Join(workDir, filepath.FromSlash(CompiledPDFRelPath)), pdf, 0644)
+		_ = writeFileWithinProject(workDir, CompiledPDFRelPath, pdf)
 	}
 
 	return pdf, string(output), nil
@@ -189,6 +198,26 @@ const buildDirName = ".polytex-build"
 // CompiledPDFRelPath is where the latest compiled PDF is always written,
 // relative to the project directory.
 const CompiledPDFRelPath = buildDirName + "/main.pdf"
+
+// readFileWithinProject reads a server-chosen path inside the project. The
+// build directory is part of the project tree, where a Git checkout can place a
+// symlink, so even a fixed path must resolve inside the project before the
+// server reads or writes it.
+func readFileWithinProject(projectDir, relPath string) ([]byte, error) {
+	path := filepath.Join(projectDir, filepath.FromSlash(relPath))
+	if err := ensureResolvesWithinProject(projectDir, path); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
+
+func writeFileWithinProject(projectDir, relPath string, data []byte) error {
+	path := filepath.Join(projectDir, filepath.FromSlash(relPath))
+	if err := ensureResolvesWithinProject(projectDir, path); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0644)
+}
 
 func pdfBaseName(entryFile string) string {
 	base := filepath.Base(entryFile)

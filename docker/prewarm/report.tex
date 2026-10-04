@@ -1,0 +1,17 @@
+% Documents written for pdfLaTeX usually select T1 fonts and Latin Modern, which
+% loads a different font set from the article sample.
+\documentclass{report}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{setspace}
+
+\begin{document}
+\chapter{Introduction}
+Regular, \textbf{bold}, \textit{italic}, \textsc{Small Caps}, \texttt{monospace},
+\textsf{sans serif}, and accented text: café, naïve, Zürich.
+\onehalfspacing
+\section{Background}
+Math in Latin Modern: $\alpha + \beta = \gamma$.
+\end{document}

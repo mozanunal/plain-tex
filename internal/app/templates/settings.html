@@ -116,7 +116,7 @@
               <label class="block text-xs font-medium text-gray-700">Public Key</label>
               <button
                 type="button"
-                onclick="(function(btn){var ta=btn.closest('.space-y-2').querySelector('textarea');navigator.clipboard.writeText(ta.value.trim()).then(function(){btn.textContent='Copied!';setTimeout(function(){btn.textContent='Copy'},2000)}).catch(function(){btn.textContent='Failed'})})(this)"
+                data-action="copy-public-key"
                 class="text-xs text-blue-600 hover:text-blue-800 font-medium"
               >Copy</button>
             </div>
