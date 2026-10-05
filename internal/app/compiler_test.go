@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +17,10 @@ func TestCompilerCompileTeX(t *testing.T) {
 
 	writeExecutable(t, tectonicPath, `#!/bin/sh
 set -eu
-entry="$1"
-pdf="${entry%.*}.pdf"
 printf '%s\n' "$@" > tectonic.args
-printf 'fake-tex-pdf' > "$pdf"
+# Mirror tectonic --outdir: write the PDF into the build directory.
+mkdir -p .polytex-build
+printf 'fake-tex-pdf' > .polytex-build/main.pdf
 `)
 	writeExecutable(t, typstPath, `#!/bin/sh
 set -eu
@@ -28,7 +29,7 @@ exit 1
 `)
 
 	compiler := NewCompiler(tectonicPath, typstPath)
-	pdf, output, err := compiler.Compile(workDir, "main.tex")
+	pdf, output, err := compiler.Compile(context.Background(), workDir, "main.tex")
 	if err != nil {
 		t.Fatalf("Compile returned error: %v (output=%q)", err, output)
 	}
@@ -41,7 +42,7 @@ exit 1
 		t.Fatalf("failed reading tectonic args: %v", err)
 	}
 	args := strings.Fields(string(argsContent))
-	want := []string{"main.tex"}
+	want := []string{"--outdir", ".polytex-build", "--keep-logs", "main.tex"}
 	if len(args) != len(want) {
 		t.Fatalf("unexpected tectonic args %v", args)
 	}
@@ -49,6 +50,10 @@ exit 1
 		if args[i] != want[i] {
 			t.Fatalf("tectonic arg %d=%q want %q", i, args[i], want[i])
 		}
+	}
+
+	if _, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(CompiledPDFRelPath))); err != nil {
+		t.Fatalf("expected compiled PDF in the build dir: %v", err)
 	}
 }
 
@@ -73,7 +78,7 @@ printf 'fake-typst-pdf' > "$output"
 `)
 
 	compiler := NewCompiler(tectonicPath, typstPath)
-	pdf, output, err := compiler.Compile(workDir, "book/main.typ")
+	pdf, output, err := compiler.Compile(context.Background(), workDir, "book/main.typ")
 	if err != nil {
 		t.Fatalf("Compile returned error: %v (output=%q)", err, output)
 	}
@@ -86,7 +91,7 @@ printf 'fake-typst-pdf' > "$output"
 		t.Fatalf("failed reading typst args: %v", err)
 	}
 	args := strings.Fields(string(argsContent))
-	want := []string{"compile", "book/main.typ", "book/main.pdf"}
+	want := []string{"compile", "book/main.typ", ".polytex-build/main.pdf"}
 	if len(args) != len(want) {
 		t.Fatalf("unexpected typst args %v", args)
 	}
@@ -96,12 +101,12 @@ printf 'fake-typst-pdf' > "$output"
 		}
 	}
 
-	mainPDF, err := os.ReadFile(filepath.Join(workDir, "main.pdf"))
+	mainPDF, err := os.ReadFile(filepath.Join(workDir, filepath.FromSlash(CompiledPDFRelPath)))
 	if err != nil {
-		t.Fatalf("expected canonical main.pdf copy: %v", err)
+		t.Fatalf("expected compiled PDF in the build dir: %v", err)
 	}
 	if string(mainPDF) != "fake-typst-pdf" {
-		t.Fatalf("unexpected main.pdf payload %q", string(mainPDF))
+		t.Fatalf("unexpected compiled PDF payload %q", string(mainPDF))
 	}
 }
 
@@ -109,7 +114,7 @@ func TestCompilerCompileUnsupportedExtension(t *testing.T) {
 	t.Parallel()
 
 	compiler := NewCompiler("tectonic", "typst")
-	_, _, err := compiler.Compile(t.TempDir(), "notes.md")
+	_, _, err := compiler.Compile(context.Background(), t.TempDir(), "notes.md")
 	if err == nil {
 		t.Fatalf("expected error for unsupported extension")
 	}

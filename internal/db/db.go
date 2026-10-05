@@ -3,12 +3,13 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	_ "modernc.org/sqlite"
 )
 
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, err
 	}
@@ -23,6 +24,19 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// dsn sets the pragmas through the connection string rather than a one-off Exec,
+// so they hold for every connection the pool ever opens:
+//   - foreign_keys(ON): the declared foreign keys are actually enforced.
+//   - journal_mode(WAL): a crash mid-write cannot corrupt the database.
+//   - busy_timeout: a writer waits instead of failing immediately under contention.
+func dsn(path string) string {
+	params := url.Values{}
+	params.Add("_pragma", "foreign_keys(ON)")
+	params.Add("_pragma", "journal_mode(WAL)")
+	params.Add("_pragma", "busy_timeout(5000)")
+	return "file:" + path + "?" + params.Encode()
+}
+
 func migrate(db *sql.DB) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS users (
@@ -31,6 +45,8 @@ func migrate(db *sql.DB) error {
 		password_hash TEXT NOT NULL,
 		name TEXT,
 		is_admin INTEGER NOT NULL DEFAULT 0,
+		disabled INTEGER NOT NULL DEFAULT 0,
+		session_version INTEGER NOT NULL DEFAULT 0,
 		created TEXT DEFAULT (datetime('now')),
 		updated TEXT DEFAULT (datetime('now'))
 	) STRICT;
@@ -119,6 +135,13 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 
+	if err := ensureUsersColumn(db, "session_version", "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := ensureUsersColumn(db, "disabled", "ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+
 	if err := ensureFirstAdmin(db); err != nil {
 		return err
 	}
@@ -136,6 +159,15 @@ func ensureUsersAdminColumn(db *sql.DB) error {
 	}
 
 	_, err = db.Exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+	return err
+}
+
+func ensureUsersColumn(db *sql.DB, column string, alter string) error {
+	exists, err := columnExists(db, "users", column)
+	if err != nil || exists {
+		return err
+	}
+	_, err = db.Exec(alter)
 	return err
 }
 

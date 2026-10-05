@@ -2,9 +2,8 @@
 bin/
 *.exe
 
-# Data
-data/latex.db
-data/projects/
+# Local dev data: the database, its WAL/SHM side files, and project files
+/data/
 
 # Dependencies
 node_modules/
@@ -20,7 +19,9 @@ node_modules/
 # Build artifacts
 *.log
 /server
-/internal/app/static/style.css
+
+# Frontend libraries fetched by scripts/vendor-frontend.sh (make vendor)
+/internal/app/static/vendor/
 
 # Local signing secret (also decrypts stored SSH keys)
 .jwt_secret

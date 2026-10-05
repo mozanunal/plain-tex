@@ -1,7 +1,16 @@
 # syntax=docker/dockerfile:1
 
+##########  Fetch the pinned frontend libraries  ##########
+# Monaco and pdf.js are not committed. The script pins each version and checks
+# the npm registry's integrity hash, and this layer caches until it changes.
+FROM alpine:3.20 AS frontend
+RUN apk add --no-cache curl openssl
+WORKDIR /src
+COPY scripts/vendor-frontend.sh scripts/
+RUN ./scripts/vendor-frontend.sh
+
 ##########  Build the static Go binary  ##########
-FROM golang:1.23-alpine AS build
+FROM golang:1.24-alpine AS build
 RUN apk add --no-cache git ca-certificates
 WORKDIR /src
 
@@ -12,6 +21,7 @@ RUN go mod download
 # Build. Templates and static assets are embedded via go:embed, and the
 # SQLite driver (modernc.org/sqlite) is pure Go, so the binary is fully static.
 COPY . .
+COPY --from=frontend /src/internal/app/static/vendor internal/app/static/vendor
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/poly-txt ./cmd/server
 
 ##########  Fetch the Typst compiler (static musl binary)  ##########
@@ -114,8 +124,17 @@ ENV PORT=3000 \
     DATA_DIR=/data \
     HOME=/home/poly \
     XDG_CACHE_HOME=/data/cache \
-    TECTONIC_CACHE_DIR=/data/cache
+    TECTONIC_CACHE_DIR=/data/cache \
+    SANDBOX=auto
 # JWT_SECRET has no default here on purpose. Set it at runtime.
+
+# SANDBOX confines each compile with Landlock so a document cannot read or write
+# files outside its project. "auto" (the default) enables it when the host
+# kernel supports Landlock (Linux 5.13+ with CONFIG_SECURITY_LANDLOCK, and the
+# container runtime must allow the landlock syscalls, which Docker's default
+# seccomp profile does on current versions). It falls back to running unconfined
+# with a log line where the kernel lacks Landlock. Set SANDBOX=required to refuse
+# to start without enforcement.
 
 # Pre-create the cache directory so it is seeded into a fresh volume with the
 # right owner. If Tectonic cannot write here it silently re-downloads its whole

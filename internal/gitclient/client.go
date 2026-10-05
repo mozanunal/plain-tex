@@ -14,29 +14,18 @@ import (
 
 const managedExcludeMarker = "# poly-txt managed excludes"
 
+// managedArtifactExcludePatterns are compiler outputs poly-txt keeps out of
+// commits. Compiled PDFs and intermediates now live in the hidden build
+// directory, so that directory is excluded as a whole. Crucially, "*.pdf" is NOT
+// excluded: a figure committed as fig.pdf is user content and must be tracked.
 var managedArtifactExcludePatterns = []string{
-	"*.pdf",
-	"*.aux",
-	"*.log",
-	"*.out",
-	"*.toc",
-	"*.nav",
-	"*.snm",
-	"*.fls",
-	"*.fdb_latexmk",
-	"*.synctex.gz",
-	"*.xdv",
-	"*.bbl",
-	"*.blg",
-	"*.bcf",
-	"*.run.xml",
-	"*.lof",
-	"*.lot",
-	"*.lol",
-	"*.idx",
-	"*.ind",
-	"*.ilg",
+	buildDirExcludePattern,
 }
+
+// buildDirExcludePattern matches the per-project build directory created by the
+// compiler (see app.buildDirName). It is duplicated here as a literal to keep
+// the gitclient package free of an app-package import.
+const buildDirExcludePattern = ".polytex-build/"
 
 type Client struct {
 	GitBin string
@@ -121,7 +110,7 @@ func (c *Client) Clone(ctx context.Context, opts CloneOptions) error {
 	if branch := strings.TrimSpace(opts.Branch); branch != "" {
 		args = append(args, "--branch", branch, "--single-branch")
 	}
-	args = append(args, strings.TrimSpace(opts.RemoteURL), opts.Dir)
+	args = append(args, "--", strings.TrimSpace(opts.RemoteURL), opts.Dir)
 	if _, err := c.run(ctx, "", opts.Auth, nil, args...); err != nil {
 		return err
 	}
@@ -151,7 +140,7 @@ func (c *Client) EnsureRemote(ctx context.Context, repoDir string, remoteURL str
 
 	currentURL, err := c.output(ctx, repoDir, Auth{}, "remote", "get-url", "origin")
 	if err != nil {
-		if _, addErr := c.run(ctx, repoDir, Auth{}, nil, "remote", "add", "origin", remoteURL); addErr != nil {
+		if _, addErr := c.run(ctx, repoDir, Auth{}, nil, "remote", "add", "--", "origin", remoteURL); addErr != nil {
 			return addErr
 		}
 		return nil
@@ -161,7 +150,7 @@ func (c *Client) EnsureRemote(ctx context.Context, repoDir string, remoteURL str
 		return nil
 	}
 
-	_, err = c.run(ctx, repoDir, Auth{}, nil, "remote", "set-url", "origin", remoteURL)
+	_, err = c.run(ctx, repoDir, Auth{}, nil, "remote", "set-url", "--", "origin", remoteURL)
 	return err
 }
 
@@ -573,11 +562,10 @@ func isManagedArtifactPath(filePath string) bool {
 		return false
 	}
 
-	baseName := path.Base(filePath)
-	for _, pattern := range managedArtifactExcludePatterns {
-		if matched, _ := path.Match(pattern, baseName); matched {
-			return true
-		}
+	// Anything inside the build directory is managed output.
+	buildDir := strings.TrimSuffix(buildDirExcludePattern, "/")
+	if filePath == buildDir || strings.HasPrefix(filePath, buildDir+"/") {
+		return true
 	}
 	return false
 }

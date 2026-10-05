@@ -2,7 +2,10 @@ package app
 
 import (
 	"archive/zip"
+	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -53,10 +56,11 @@ type Project struct {
 }
 
 type UserSummary struct {
-	ID      string
-	Email   string
-	Name    string
-	IsAdmin bool
+	ID       string
+	Email    string
+	Name     string
+	IsAdmin  bool
+	Disabled bool
 }
 
 type UserGitKeySummary struct {
@@ -177,22 +181,13 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.createToken(user.ID, user.Email)
-	if err != nil {
+	if err := s.issueSession(w, user.ID, user.Email); err != nil {
 		s.templates.ExecuteTemplate(w, "login.html", PageData{
 			Error:                "Login failed",
 			RegistrationDisabled: registrationDisabled,
 		})
 		return
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -236,32 +231,16 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := s.createToken(id, email)
-	if err != nil {
+	if err := s.issueSession(w, id, email); err != nil {
 		s.templates.ExecuteTemplate(w, "register.html", PageData{Error: "Registration failed"})
 		return
 	}
-
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    token,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
 
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     "token",
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-	})
-
+	clearSessionCookie(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
@@ -414,14 +393,21 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.db.Exec(
-		"UPDATE users SET password_hash = ?, updated = datetime('now') WHERE id = ?",
+		"UPDATE users SET password_hash = ?, session_version = session_version + 1, updated = datetime('now') WHERE id = ?",
 		newHash, user.ID,
 	); err != nil {
 		http.Error(w, "Failed to change password", http.StatusInternalServerError)
 		return
 	}
 
-	redirectWithMessage(w, r, "/settings", "Password changed", "")
+	// The current session's cookie no longer matches the bumped version, so
+	// reissue it; other sessions are now logged out.
+	if err := s.issueSession(w, user.ID, user.Email); err != nil {
+		http.Error(w, "Failed to change password", http.StatusInternalServerError)
+		return
+	}
+
+	redirectWithMessage(w, r, "/settings", "Password changed. Other sessions have been signed out.", "")
 }
 
 func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
@@ -431,7 +417,7 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userRows, err := s.db.Query("SELECT id, email, name, is_admin FROM users ORDER BY email ASC")
+	userRows, err := s.db.Query("SELECT id, email, name, is_admin, disabled FROM users ORDER BY email ASC")
 	if err != nil {
 		http.Error(w, "Failed to load users", http.StatusInternalServerError)
 		return
@@ -443,7 +429,8 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 		var candidate UserSummary
 		var name sql.NullString
 		var isAdmin int
-		if err := userRows.Scan(&candidate.ID, &candidate.Email, &name, &isAdmin); err != nil {
+		var disabled int
+		if err := userRows.Scan(&candidate.ID, &candidate.Email, &name, &isAdmin, &disabled); err != nil {
 			http.Error(w, "Failed to load users", http.StatusInternalServerError)
 			return
 		}
@@ -451,6 +438,7 @@ func (s *Server) handleAdminUsersPage(w http.ResponseWriter, r *http.Request) {
 			candidate.Name = name.String
 		}
 		candidate.IsAdmin = isAdmin == 1
+		candidate.Disabled = disabled == 1
 		users = append(users, candidate)
 	}
 	if err := userRows.Err(); err != nil {
@@ -593,14 +581,14 @@ func (s *Server) handleAdminResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	if _, err := s.db.Exec(
-		"UPDATE users SET password_hash = ?, updated = datetime('now') WHERE id = ?",
+		"UPDATE users SET password_hash = ?, session_version = session_version + 1, updated = datetime('now') WHERE id = ?",
 		hash, targetID,
 	); err != nil {
 		http.Error(w, "Failed to reset password", http.StatusInternalServerError)
 		return
 	}
 
-	redirectWithMessage(w, r, "/admin/users", "Password reset for "+email, "")
+	redirectWithMessage(w, r, "/admin/users", "Password reset for "+email+". Their existing sessions are signed out.", "")
 }
 
 func (s *Server) handleAddProjectMember(w http.ResponseWriter, r *http.Request) {
@@ -681,33 +669,42 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.db.Exec("DELETE FROM project_members WHERE project_id = ?", access.ProjectID)
+	tx, err := s.db.Begin()
 	if err != nil {
 		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
 		return
 	}
-	if _, err := s.db.Exec("DELETE FROM project_git_configs WHERE project_id = ?", access.ProjectID); err != nil {
-		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
-		return
+	defer tx.Rollback()
+
+	for _, stmt := range []string{
+		"DELETE FROM project_members WHERE project_id = ?",
+		"DELETE FROM project_git_configs WHERE project_id = ?",
+		"DELETE FROM comments WHERE project_id = ?",
+	} {
+		if _, err := tx.Exec(stmt, access.ProjectID); err != nil {
+			http.Error(w, "Failed to delete project", http.StatusInternalServerError)
+			return
+		}
 	}
 
-	result, err := s.db.Exec(
-		"DELETE FROM projects WHERE id = ?",
-		access.ProjectID,
-	)
+	result, err := tx.Exec("DELETE FROM projects WHERE id = ?", access.ProjectID)
 	if err != nil {
 		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
 		return
 	}
-
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
 		http.Error(w, "Project not found", http.StatusNotFound)
 		return
 	}
 
-	s.db.Exec("DELETE FROM comments WHERE project_id = ?", access.ProjectID)
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Failed to delete project", http.StatusInternalServerError)
+		return
+	}
 
+	// Files are removed only after the database rows are committed, so a failure
+	// never leaves a project row pointing at a deleted directory.
 	projectDir := filepath.Join(s.projectsDir, access.ProjectID)
 	os.RemoveAll(projectDir)
 
@@ -768,6 +765,7 @@ func (s *Server) handleEditorPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Security-Policy", editorContentSecurityPolicy)
 	s.templates.ExecuteTemplate(w, "editor.html", PageData{
 		User:             user,
 		UserGitKey:       userGitKey,
@@ -838,9 +836,32 @@ func (s *Server) handleCompile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Serialize against other work on this project (a concurrent compile or a git
+	// operation on the same working tree), then bound total parallelism across
+	// all projects so a burst cannot exhaust the host.
+	unlock := s.projectLocks.Lock(projectID)
+	defer unlock()
+
+	select {
+	case s.compileSem <- struct{}{}:
+		defer func() { <-s.compileSem }()
+	case <-r.Context().Done():
+		http.Error(w, "Request cancelled", http.StatusRequestTimeout)
+		return
+	}
+
+	compileCtx, cancel := context.WithTimeout(r.Context(), compileTimeout)
+	defer cancel()
+
 	compileStartedAt := time.Now()
-	pdf, output, err := s.compiler.Compile(projectDir, entry)
+	pdf, output, err := s.compiler.Compile(compileCtx, projectDir, entry)
 	compileDurationMs := time.Since(compileStartedAt).Milliseconds()
+	if compileCtx.Err() == context.DeadlineExceeded {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		w.Write([]byte("Compile timed out after " + compileTimeout.String() + " and was stopped."))
+		return
+	}
 	w.Header().Set("X-Compile-Ms", strconv.FormatInt(compileDurationMs, 10))
 	w.Header().Set("X-Latex-Compile-Ms", strconv.FormatInt(compileDurationMs, 10))
 	w.Header().Set("X-Compile-Entry", entry)
@@ -933,8 +954,7 @@ func (s *Server) handleGetPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := access.ProjectID
 
-	pdfPath := filepath.Join(s.projectsDir, projectID, "main.pdf")
-	pdf, err := os.ReadFile(pdfPath)
+	pdf, err := readFileWithinProject(filepath.Join(s.projectsDir, projectID), CompiledPDFRelPath)
 	if err != nil {
 		http.Error(w, "PDF not found", http.StatusNotFound)
 		return
@@ -994,8 +1014,7 @@ func (s *Server) handleDownloadPDF(w http.ResponseWriter, r *http.Request) {
 	}
 	projectID := access.ProjectID
 
-	pdfPath := filepath.Join(s.projectsDir, projectID, "main.pdf")
-	pdf, err := os.ReadFile(pdfPath)
+	pdf, err := readFileWithinProject(filepath.Join(s.projectsDir, projectID), CompiledPDFRelPath)
 	if err != nil {
 		http.Error(w, "PDF not found. Compile first.", http.StatusNotFound)
 		return
@@ -1056,10 +1075,16 @@ func (s *Server) handleDownloadSource(w http.ResponseWriter, r *http.Request) {
 	zipWriter := zip.NewWriter(w)
 	for _, relPath := range filePaths {
 		absPath := filepath.Join(projectDir, filepath.FromSlash(relPath))
+		if ensureResolvesWithinProject(projectDir, absPath) != nil {
+			continue
+		}
 		fileInfo, err := os.Stat(absPath)
 		if err != nil {
 			zipWriter.Close()
 			return
+		}
+		if fileInfo.IsDir() {
+			continue
 		}
 
 		header, err := zip.FileInfoHeader(fileInfo)
@@ -1124,6 +1149,11 @@ var compilerArtifacts = map[string]struct{}{
 }
 
 var errNoCompileEntry = errors.New("no .tex, .typ, or .md entry file found")
+
+// compileTimeout bounds a single compile. The CPU rlimit in the sandbox is a
+// backstop; this stops a compile that blocks without burning CPU, for example
+// waiting on a network fetch.
+const compileTimeout = 2 * time.Minute
 
 func isCompilableSource(name string) bool {
 	switch strings.ToLower(filepath.Ext(name)) {
@@ -1473,6 +1503,12 @@ func normalizeProjectPath(input string, allowEmpty bool) (string, error) {
 		if part == ".." {
 			return "", errors.New("invalid path")
 		}
+		// The repository metadata is managed by poly-txt alone. Letting users edit
+		// it (for example .git/config) would let them configure commands that git
+		// later runs on the server.
+		if strings.EqualFold(part, ".git") {
+			return "", errors.New("invalid path")
+		}
 		normalizedParts = append(normalizedParts, part)
 	}
 
@@ -1500,7 +1536,38 @@ func isPathWithinProject(projectDir, candidatePath string) bool {
 	return true
 }
 
+var errPathEscapesProject = errors.New("invalid path")
+
+// resolveProjectPath maps a user-supplied relative path to an absolute path inside
+// the project, following symlinks: the file a read or write would actually touch
+// must live inside the project directory.
 func resolveProjectPath(projectDir, input string, allowEmpty bool) (string, string, error) {
+	rel, abs, err := resolveProjectPathLexically(projectDir, input, allowEmpty)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensureResolvesWithinProject(projectDir, abs); err != nil {
+		return "", "", err
+	}
+	return rel, abs, nil
+}
+
+// resolveProjectPathNoFollow is for operations that act on the directory entry
+// itself rather than on what it points to (delete, rename). A symlink that points
+// outside the project can then still be removed, while its parent directories
+// must resolve inside the project.
+func resolveProjectPathNoFollow(projectDir, input string, allowEmpty bool) (string, string, error) {
+	rel, abs, err := resolveProjectPathLexically(projectDir, input, allowEmpty)
+	if err != nil {
+		return "", "", err
+	}
+	if err := ensureResolvesWithinProject(projectDir, filepath.Dir(abs)); err != nil {
+		return "", "", err
+	}
+	return rel, abs, nil
+}
+
+func resolveProjectPathLexically(projectDir, input string, allowEmpty bool) (string, string, error) {
 	rel, err := normalizeProjectPath(input, allowEmpty)
 	if err != nil {
 		return "", "", err
@@ -1511,9 +1578,44 @@ func resolveProjectPath(projectDir, input string, allowEmpty bool) (string, stri
 		abs = filepath.Join(projectDir, filepath.FromSlash(rel))
 	}
 	if !isPathWithinProject(projectDir, abs) {
-		return "", "", errors.New("invalid path")
+		return "", "", errPathEscapesProject
 	}
 	return rel, abs, nil
+}
+
+// ensureResolvesWithinProject resolves symlinks along candidatePath, up to its
+// deepest existing ancestor, and rejects the path if that lands outside the
+// project. A dangling symlink is rejected too, since writing through it would
+// create its target wherever it points.
+func ensureResolvesWithinProject(projectDir, candidatePath string) error {
+	realProjectDir, err := filepath.EvalSymlinks(projectDir)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	existing := candidatePath
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			return nil
+		}
+		existing = parent
+	}
+
+	realPath, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return errPathEscapesProject
+	}
+	if !isPathWithinProject(realProjectDir, realPath) {
+		return errPathEscapesProject
+	}
+	return nil
 }
 
 func hasHiddenSegment(rel string) bool {
@@ -1969,8 +2071,28 @@ func (s *Server) handleGetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setUntrustedFileHeaders(w, path.Base(filename))
+	w.Header().Set("ETag", contentETag(content))
 	w.Header().Set("Content-Type", detectContentType(filename, content))
 	w.Write(content)
+}
+
+// contentETag is a strong validator derived from the file bytes. The editor
+// sends the value it last read back on save, so the server can reject a write
+// that would silently clobber someone else's concurrent change.
+func contentETag(content []byte) string {
+	sum := sha256.Sum256(content)
+	return "\"" + hex.EncodeToString(sum[:]) + "\""
+}
+
+// setUntrustedFileHeaders makes the browser treat project files as inert data.
+// They are served from the app's own origin, so an uploaded HTML or SVG file
+// opened directly would otherwise run scripts with the viewer's session. The
+// editor reads files with fetch, which these headers do not affect.
+func setUntrustedFileHeaders(w http.ResponseWriter, filename string) {
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 }
 
 func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
@@ -2001,6 +2123,22 @@ func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Optional optimistic concurrency: if the client sends the ETag it last read,
+	// refuse the write when the file changed underneath it so one editor does not
+	// silently overwrite another's save. Clients that send nothing are unaffected.
+	if baseHash := strings.TrimSpace(r.FormValue("baseHash")); baseHash != "" {
+		current, readErr := os.ReadFile(filePath)
+		if readErr != nil {
+			http.Error(w, "Failed to access file", http.StatusInternalServerError)
+			return
+		}
+		if contentETag(current) != baseHash {
+			w.Header().Set("ETag", contentETag(current))
+			http.Error(w, "This file changed since you opened it. Reload to see the latest version before saving.", http.StatusConflict)
+			return
+		}
+	}
+
 	content := r.FormValue("content")
 	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 		http.Error(w, "Failed to save file", http.StatusInternalServerError)
@@ -2008,6 +2146,7 @@ func (s *Server) handleUpdateFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.touchProject(projectID)
+	w.Header().Set("ETag", contentETag([]byte(content)))
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -2019,13 +2158,13 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	projectID := access.ProjectID
 
 	projectDir := filepath.Join(s.projectsDir, projectID)
-	filename, filePath, err := resolveProjectPath(projectDir, chi.URLParam(r, "*"), false)
+	filename, filePath, err := resolveProjectPathNoFollow(projectDir, chi.URLParam(r, "*"), false)
 	if err != nil {
 		http.Error(w, "Invalid filename", http.StatusBadRequest)
 		return
 	}
 
-	fileInfo, err := os.Stat(filePath)
+	fileInfo, err := os.Lstat(filePath)
 	if os.IsNotExist(err) {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -2059,12 +2198,12 @@ func (s *Server) handleMoveFile(w http.ResponseWriter, r *http.Request) {
 
 	projectDir := filepath.Join(s.projectsDir, projectID)
 
-	sourceRel, sourcePath, err := resolveProjectPath(projectDir, r.FormValue("source"), false)
+	sourceRel, sourcePath, err := resolveProjectPathNoFollow(projectDir, r.FormValue("source"), false)
 	if err != nil {
 		http.Error(w, "Invalid source path", http.StatusBadRequest)
 		return
 	}
-	sourceInfo, err := os.Stat(sourcePath)
+	sourceInfo, err := os.Lstat(sourcePath)
 	if os.IsNotExist(err) {
 		http.Error(w, "Source not found", http.StatusNotFound)
 		return

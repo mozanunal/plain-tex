@@ -95,8 +95,8 @@ func (s *Server) handleCloneProject(w http.ResponseWriter, r *http.Request) {
 	user := getUserFromContext(r.Context())
 
 	remoteURL := strings.TrimSpace(r.FormValue("remoteURL"))
-	if remoteURL == "" {
-		redirectWithMessage(w, r, "/", "", "Remote URL is required")
+	if err := gitclient.ValidateRemoteURL(remoteURL); err != nil {
+		redirectWithMessage(w, r, "/", "", err.Error())
 		return
 	}
 
@@ -249,8 +249,8 @@ func (s *Server) handleGitConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	remoteURL := strings.TrimSpace(r.FormValue("remoteURL"))
-	if remoteURL == "" {
-		http.Error(w, "Remote URL is required", http.StatusBadRequest)
+	if err := gitclient.ValidateRemoteURL(remoteURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -340,6 +340,10 @@ func (s *Server) pullWithStrategy(w http.ResponseWriter, r *http.Request, rebase
 		http.Error(w, "Failed to load Git configuration", http.StatusInternalServerError)
 		return
 	}
+	if err := gitclient.ValidateRemoteURL(cfg.RemoteURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	_, auth, err := s.getOptionalUserGitAuth(user.ID)
 	if err != nil {
@@ -350,6 +354,9 @@ func (s *Server) pullWithStrategy(w http.ResponseWriter, r *http.Request, rebase
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
 
 	if err := s.git.Pull(r.Context(), gitclient.SyncOptions{
 		RepoDir:     filepath.Join(s.projectsDir, access.ProjectID),
@@ -394,6 +401,10 @@ func (s *Server) handleGitResetToRemote(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Failed to load Git configuration", http.StatusInternalServerError)
 		return
 	}
+	if err := gitclient.ValidateRemoteURL(cfg.RemoteURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	_, auth, err := s.getOptionalUserGitAuth(user.ID)
 	if err != nil {
@@ -404,6 +415,9 @@ func (s *Server) handleGitResetToRemote(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
 
 	if err := s.git.ResetToRemote(r.Context(), gitclient.SyncOptions{
 		RepoDir:   filepath.Join(s.projectsDir, access.ProjectID),
@@ -460,6 +474,10 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to load Git configuration", http.StatusInternalServerError)
 		return
 	}
+	if err := gitclient.ValidateRemoteURL(cfg.RemoteURL); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	_, auth, err := s.getOptionalUserGitAuth(user.ID)
 	if err != nil {
@@ -470,6 +488,9 @@ func (s *Server) handleGitPush(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
 
 	pushResult, err := s.git.Push(r.Context(), gitclient.CommitOptions{
 		SyncOptions: gitclient.SyncOptions{
@@ -519,6 +540,9 @@ func (s *Server) handleGitReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = cfg
+
+	unlock := s.projectLocks.Lock(access.ProjectID)
+	defer unlock()
 
 	if err := s.git.Reset(r.Context(), filepath.Join(s.projectsDir, access.ProjectID)); err != nil {
 		http.Error(w, renderGitError(err), http.StatusBadRequest)

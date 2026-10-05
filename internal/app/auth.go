@@ -23,8 +23,9 @@ type User struct {
 }
 
 type Claims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
+	UserID         string `json:"user_id"`
+	Email          string `json:"email"`
+	SessionVersion int    `json:"session_version"`
 	jwt.RegisteredClaims
 }
 
@@ -38,10 +39,11 @@ func checkPassword(password, hash string) bool {
 	return err == nil
 }
 
-func (s *Server) createToken(userID, email string) (string, error) {
+func (s *Server) createToken(userID, email string, sessionVersion int) (string, error) {
 	claims := Claims{
-		UserID: userID,
-		Email:  email,
+		UserID:         userID,
+		Email:          email,
+		SessionVersion: sessionVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -83,16 +85,27 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		var dbUser struct {
-			ID      string
-			Email   string
-			Name    sql.NullString
-			IsAdmin int
+			ID             string
+			Email          string
+			Name           sql.NullString
+			IsAdmin        int
+			Disabled       int
+			SessionVersion int
 		}
 		err = s.db.QueryRow(
-			"SELECT id, email, name, is_admin FROM users WHERE id = ?",
+			"SELECT id, email, name, is_admin, disabled, session_version FROM users WHERE id = ?",
 			claims.UserID,
-		).Scan(&dbUser.ID, &dbUser.Email, &dbUser.Name, &dbUser.IsAdmin)
+		).Scan(&dbUser.ID, &dbUser.Email, &dbUser.Name, &dbUser.IsAdmin, &dbUser.Disabled, &dbUser.SessionVersion)
 		if err != nil {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		// A token stays valid only while it matches the account's current session
+		// version, so a password change, reset, or disable logs the user out of
+		// every existing session. A disabled account is refused outright.
+		if dbUser.Disabled == 1 || dbUser.SessionVersion != claims.SessionVersion {
+			clearSessionCookie(w)
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
@@ -114,4 +127,53 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 func getUserFromContext(ctx context.Context) *User {
 	user, _ := ctx.Value(userContextKey).(*User)
 	return user
+}
+
+// setSessionCookie issues the auth cookie. Secure is set when the server is told
+// it sits behind TLS, so the cookie is never sent over plain HTTP in production
+// while local HTTP development still works.
+func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   s.secureCookies,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+}
+
+// issueSession looks up the account's current session version and sets the
+// cookie, so a freshly issued token already matches the version the middleware
+// checks on the next request.
+func (s *Server) issueSession(w http.ResponseWriter, userID, email string) error {
+	var sessionVersion int
+	if err := s.db.QueryRow("SELECT session_version FROM users WHERE id = ?", userID).Scan(&sessionVersion); err != nil {
+		return err
+	}
+	token, err := s.createToken(userID, email, sessionVersion)
+	if err != nil {
+		return err
+	}
+	s.setSessionCookie(w, token)
+	return nil
+}
+
+// bumpSessionVersion invalidates every existing session for a user.
+func (s *Server) bumpSessionVersion(userID string) error {
+	_, err := s.db.Exec(
+		"UPDATE users SET session_version = session_version + 1, updated = datetime('now') WHERE id = ?",
+		userID,
+	)
+	return err
 }

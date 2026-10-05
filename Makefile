@@ -2,9 +2,8 @@
 
 BIN_DIR := bin
 BINARY := $(BIN_DIR)/poly-txt
-CSS_INPUT := internal/app/static/input.css
-CSS_OUTPUT := internal/app/static/style.css
 DOCKER_IMAGE := poly-txt:latest
+VENDOR_STAMP := internal/app/static/vendor/.complete
 SECRET_FILE := .jwt_secret
 
 .PHONY: help
@@ -13,21 +12,20 @@ help: ## Show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 .PHONY: dev
-dev: ## Run development server
+dev: vendor ## Run development server
 	go run ./cmd/server
 
 .PHONY: build
-build: css ## Build production binary
+build: vendor ## Build production binary
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BINARY) ./cmd/server
 
-.PHONY: css
-css: ## Compile Tailwind CSS for production
-	npx tailwindcss -i $(CSS_INPUT) -o $(CSS_OUTPUT) --minify
+.PHONY: vendor
+vendor: $(VENDOR_STAMP) ## Fetch the pinned Monaco and pdf.js builds (not committed)
 
-.PHONY: css-watch
-css-watch: ## Compile Tailwind CSS with hot reload
-	npx tailwindcss -i $(CSS_INPUT) -o $(CSS_OUTPUT) --watch
+$(VENDOR_STAMP): scripts/vendor-frontend.sh
+	./scripts/vendor-frontend.sh
+	@touch $@
 
 .PHONY: format
 format: ## Format Go code
@@ -43,7 +41,7 @@ lint: ## Lint Go code with staticcheck and vet
 	fi
 
 .PHONY: test
-test: ## Run tests
+test: vendor ## Run tests
 	go test ./...
 
 .PHONY: check
@@ -68,5 +66,4 @@ docker-run: docker-build ## Run the container (reuses the secret in .jwt_secret)
 .PHONY: clean
 clean: ## Remove build artifacts
 	rm -rf $(BIN_DIR)
-	rm -f $(CSS_OUTPUT)
 	rm -f data/latex.db

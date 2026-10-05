@@ -1,0 +1,63 @@
+/* Editor page styles (moved from an inline <style> block for the CSP). */
+        #workspace-layout { min-width: 0; }
+        #work-area { height: 100%; min-width: 0; }
+        #editor-container { height: 100%; }
+        #file-preview { height: 100%; }
+        #pdf-container { height: 100%; overflow: auto; }
+        #file-sidebar { height: 100%; }
+        #utility-panel {
+            width: 17rem;
+            min-width: 0;
+            transition: width 0.2s ease, opacity 0.2s ease;
+        }
+        #utility-shell.utility-collapsed #utility-panel {
+            width: 0;
+            opacity: 0;
+            pointer-events: none;
+            overflow: hidden;
+            border-right-width: 0;
+        }
+        #workspace-layout[data-view="editor"] #pdf-container { display: none; }
+        #workspace-layout[data-view="pdf"] #work-area { display: none; }
+        #workspace-layout[data-view="pdf"] #pdf-container {
+            width: auto;
+            flex: 1 1 auto;
+        }
+        #workspace-layout[data-view="split"] #work-area {
+            display: block;
+            flex: 1 1 0;
+        }
+        #workspace-layout[data-view="split"] #pdf-container {
+            width: auto;
+            flex: 1 1 0;
+            display: block;
+        }
+        .file-tree-row:hover .delete-btn { display: block; }
+        .file-tree-row .delete-btn { display: none; }
+        .file-tree-row.drag-source { opacity: 0.5; }
+        .file-tree-drop-target { background: rgba(59, 130, 246, 0.25); }
+        .file-tree-drop-target-root {
+            outline: 1px dashed rgba(147, 197, 253, 0.9);
+            background: rgba(59, 130, 246, 0.2);
+        }
+        .pdf-page {
+            cursor: pointer;
+            border: 2px solid transparent;
+            background: white;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .pdf-page:hover { border-color: #93c5fd; }
+        .pdf-page-active {
+            border-color: #2563eb !important;
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+        }
+        .monaco-editor .source-line-highlight {
+            background: rgba(37, 99, 235, 0.2);
+        }
+        .monaco-editor .comment-line-highlight {
+            background: rgba(245, 158, 11, 0.2);
+        }
+        .monaco-editor .comment-line-decoration {
+            border-left: 3px solid rgba(245, 158, 11, 0.95);
+            margin-left: 2px;
+        }

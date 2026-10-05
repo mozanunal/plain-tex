@@ -136,16 +136,29 @@ start.
 
 ## Data persistence and backups
 
-The container writes only to `/data`. Back it up by archiving that volume while
-the app is stopped or quiet:
+The container writes only to `/data`. The database runs in WAL mode, so copying
+`latex.db` with `tar` while the app is running can capture a half-written file
+and a `tar` of the whole volume then restores a corrupt database. Snapshot the
+database with SQLite's own online backup first, which is safe on a live file,
+then archive the rest:
 
 ```bash
-# Create a tarball of the named volume in the current directory.
+# 1. Consistent database snapshot (safe while the app is running).
+docker exec poly-txt sh -c \
+  'sqlite3 /data/latex.db ".backup /data/latex.db.bak"'
+
+# 2. Archive the volume. The snapshot above is included; the live latex.db,
+#    latex.db-wal, and latex.db-shm in the archive are ignored on restore.
 docker run --rm \
   -v poly-txt-data:/data \
   -v "$PWD":/backup \
   alpine tar czf /backup/poly-txt-backup.tar.gz -C /data .
 ```
+
+If you cannot run `sqlite3` in the container, stop the app before the `tar` so
+the database is at rest. On restore, replace `latex.db` with the `.bak`
+snapshot. Everything under each project's `.polytex-build/` directory is
+disposable compiled output and can be excluded from backups.
 
 Restore into a fresh volume:
 

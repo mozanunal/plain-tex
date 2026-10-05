@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
-  {{template "page_head" (dict "Title" "Projects" "Htmx" true)}}
+  {{template "page_head" (dict "Title" "Projects")}}
   <body class="bg-gray-50 min-h-screen text-gray-900">
     {{template "auth_nav" .}}
 
@@ -30,7 +30,7 @@
         {{if .Projects}}
         <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {{range .Projects}}
-          <div class="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col hover:shadow-md transition">
+          <div data-project-card class="bg-white rounded-lg border border-gray-200 shadow-sm p-4 flex flex-col hover:shadow-md transition">
             <div class="flex justify-between items-start mb-2 gap-2">
               <h3 class="font-semibold text-gray-900 break-all">{{.Name}}</h3>
               <span class="shrink-0 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{{.AccessRole}}</span>
@@ -48,10 +48,9 @@
               </a>
               {{if or (eq .AccessRole "owner") $.User.IsAdmin}}
               <button
-                hx-delete="/projects/{{.ID}}"
-                hx-confirm="Delete this project?"
-                hx-target="closest div.bg-white"
-                hx-swap="outerHTML"
+                type="button"
+                data-action="delete-project"
+                data-url="/projects/{{.ID}}"
                 class="px-3 py-2 rounded-md text-sm text-red-600 hover:bg-red-50 transition"
               >
                 Delete
